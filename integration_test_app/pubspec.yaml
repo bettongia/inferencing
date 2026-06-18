@@ -1,0 +1,30 @@
+name: betto_inferencing_test_app
+description: >
+  Integration test harness for betto_inferencing — verifies that the
+  native-assets ORT pipeline loads correctly and that the full tokenise → infer
+  → pool → normalise path works on each target platform.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  betto_inferencing:
+    path: ../
+  # betto_onnxrt_ios is required on iOS to link the ORT XCFramework via SPM.
+  # Remove or comment out when testing on non-iOS platforms if the package is
+  # not yet available on pub.dev.
+  betto_onnxrt_ios: ^0.1.0-dev.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

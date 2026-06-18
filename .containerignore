@@ -1,0 +1,14 @@
+.containerignore
+Dockerfile
+build/
+doc/
+docs
+coverage/
+site/
+pubspec.lock
+.claude/
+.dart_tool/
+.git/
+.github/
+.gitignore
+.packages
