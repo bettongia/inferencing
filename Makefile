@@ -33,7 +33,7 @@ cicd_linux: prepare license_check format_check analyze test coverage
 .PHONY: cicd_linux
 
 # macOS: Dart unit tests + Flutter integration tests on the macOS device.
-cicd_macos: prepare license_check format_check analyze test macos_test
+cicd_macos: prepare test macos_test
 .PHONY: cicd_macos
 
 # Windows: pure Dart tests on Windows.
