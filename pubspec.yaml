@@ -1,7 +1,7 @@
 name: betto_inferencing
 description: >
   ONNX Runtime inference and embedding models for dense text retrieval.
-version: 0.1.0-dev.1
+version: 0.1.0-dev.2
 homepage: https://bettongia.github.io/inferencing/
 repository: https://github.com/bettongia/inferencing
 issue_tracker: https://github.com/bettongia/inferencing/issues
