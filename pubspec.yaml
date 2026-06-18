@@ -11,6 +11,13 @@ topics:
   - embedding
   - onnx
 
+platforms:
+  ios:
+  android:
+  linux:
+  macos:
+  windows:
+
 environment:
   sdk: ^3.12.0
 
