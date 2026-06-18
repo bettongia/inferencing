@@ -3,3 +3,7 @@ include: package:lints/recommended.yaml
 analyzer:
   exclude:
     - integration_test_app/**
+
+linter:
+  rules:
+    - public_member_api_docs

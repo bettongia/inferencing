@@ -4,7 +4,7 @@
 
 Initial development release providing ONNX Runtime inference and embedding
 models for dense text retrieval on native platforms (macOS, Linux, Windows,
-Android).
+Android, iOS).
 
 ### Features
 
