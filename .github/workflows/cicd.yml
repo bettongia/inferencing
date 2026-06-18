@@ -71,13 +71,13 @@ jobs:
           channel: stable
 
       - name: Cache ORT binary
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.pub-cache/hosted/pub.dev/betto_onnxrt-*/.dart_tool/betto_onnxrt
           key: ort-${{ runner.os }}-${{ hashFiles('integration_test_app/pubspec.lock') }}
 
       - name: Cache model files
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/betto_inferencing_models
           key: models-bge-small-en-v1.5-828e1496d7fabb79cfa4dcd84fa38625c0d3d21da474a00f08db0f559940cf35
