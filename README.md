@@ -23,9 +23,13 @@ download-on-demand.
   sequences ready for ORT inference. Word segmentation delegates to a
   `betto_lexical` `Tokenizer`; defaults to `RegExpTokenizer` and accepts
   `IcuTokenizer` as a drop-in replacement.
-- **`TokenizerOutput`** — value type returned by `BertTokenizer.encode`.
-  Carries `inputIds`, `attentionMask`, and `tokenTypeIds` as parallel
-  `Int64List` arrays, plus a `truncated` flag.
+- **`TokenizerOutput`** — value type returned by `BertTokenizer.encode` and
+  `XlmRobertaTokenizer.encode`. Carries `inputIds`, `attentionMask`, and
+  `tokenTypeIds` as parallel `Int64List` arrays, plus a `truncated` flag.
+- **`XlmRobertaTokenizer`** — XLM-RoBERTa-family SentencePiece/Unigram
+  tokenizer (e.g. `multilingual-e5-small`), loaded from a HuggingFace
+  `tokenizer.json` file. See "Why not `dart_sentencepiece_tokenizer` alone"
+  below for why this isn't a thin wrapper around that package.
 - **`ModelCatalog`** — allowlist of validated embedding models with
   download-on-demand gating. `ModelCatalog.lookup(id)` returns the `ModelSpec`
   for a validated model; `ModelCatalog.isKnown(id)` checks registration without
@@ -208,6 +212,58 @@ dart run example/<name>.dart
 | `bge-small-en-v1.5` | 384 | English | ✅ Validated |
 | `bge-m3-v1.0` | 1024 | Multilingual | Registered, not yet validated |
 
+## Why not `dart_sentencepiece_tokenizer` alone
+
+`XlmRobertaTokenizer` depends on
+[`dart_sentencepiece_tokenizer`](https://pub.dev/packages/dart_sentencepiece_tokenizer)
+(MIT licensed — compatible with this project's Apache-2.0 license; no
+`NOTICE` entry is needed for using it as a normal dependency) for vocabulary
+loading, Unigram Viterbi decoding, and BOS/EOS post-processing, but cannot
+use it as-is for the normalization step. Two independent defects were found
+in its HuggingFace `tokenizer.json`-loading path while integrating
+`multilingual-e5-small` (full investigation:
+[`plan_0_06_wi11_xlmr_tokenizer.md`](https://github.com/bettongia/kmdb/blob/main/docs/plans/completed/plan_0_06_wi11_xlmr_tokenizer.md)
+in the `kmdb` repository):
+
+1. **It never applies the `Precompiled` charsmap normalizer on the JSON
+   loading path.** `tokenizer.json`'s `normalizer` field is a `Sequence`
+   whose first entry has `"type": "Precompiled"` and a
+   `precompiled_charsmap` key holding a base64-encoded Darts double-array
+   trie (the substitution table SentencePiece bakes into a trained model —
+   fullwidth-to-ASCII folding, ellipsis expansion, etc.; not plain NFKC).
+   `dart_sentencepiece_tokenizer`'s `huggingface_json.dart` parses this
+   section's other flags correctly but never passes a `precompiledCharsmap`
+   value through — it is silently dropped. (The charsmap data itself *is*
+   populated elsewhere, but only on the separate native `.model` protobuf
+   loading path, which this project does not use — see the plan's
+   Investigation section for the exact source lines.) No existing Dart
+   implementation of this trie format could be found anywhere, so this
+   package implements its own: `CharsmapTrie`
+   (`lib/src/charsmap_trie.dart`), whose traversal algorithm structure is
+   ported from the Rust `spm_precompiled` crate — see [`NOTICE`](NOTICE) for
+   attribution.
+2. **Its HuggingFace-JSON metadata parser also mis-derives
+   whitespace/dummy-prefix configuration for `tokenizer.json` files that
+   put it in `pre_tokenizer` rather than `normalizer`.**
+   `multilingual-e5-small`'s `tokenizer.json` declares its dummy-prefix and
+   whitespace-escaping behaviour entirely via a `pre_tokenizer.Metaspace`
+   entry (`{"type": "Metaspace", "replacement": "▁", "add_prefix_space":
+   true}`), which the parser never reads (it only inspects `normalizer`) —
+   so all three of its derived flags come back `false`, making its own
+   `SpNormalizer` an unconditional pass-through for this file. This is a
+   second, independent defect from the charsmap-drop above, found during
+   this package's own investigation rather than documented upstream.
+
+`XlmRobertaTokenizer` works around both by composing its own
+charsmap-substitution, whitespace-collapse, and Metaspace-escaping steps
+*before* handing already-normalized text to `dart_sentencepiece_tokenizer`'s
+public `encode()` — composition, not a fork: no
+`dart_sentencepiece_tokenizer` source is modified. If either upstream defect
+is fixed in a future release, this package's manual steps become redundant
+but harmless (idempotent no-ops on already-correct input) — no urgency to
+remove them, though doing so is a reasonable future cleanup.
+
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+Apache 2.0 — see [LICENSE](LICENSE). Third-party attribution for ported
+algorithm structure is recorded in [NOTICE](NOTICE).

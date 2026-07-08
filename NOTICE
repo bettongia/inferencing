@@ -1,0 +1,30 @@
+betto_inferencing
+Copyright 2026 The Authors.
+
+This product includes software developed as part of the Bettongia project
+(https://github.com/bettongia).
+
+================================================================================
+
+lib/src/charsmap_trie.dart ports the trie-traversal *structure* (not the
+literal source) of the following third-party project:
+
+  spm_precompiled
+  https://github.com/huggingface/spm_precompiled
+  Copyright (c) Hugging Face
+  Licensed under the Apache License, Version 2.0
+
+Specifically, `CharsmapTrie._commonPrefixSearch` and `CharsmapTrie.transform`
+port the algorithm shape of `spm_precompiled`'s `DoubleArray::common_prefix_search`
+and `Precompiled::transform`, and `CharsmapTrie.normalize` ports the
+grapheme-cluster-first, fall-back-to-single-char strategy of
+`Precompiled::normalize_string`. This was necessary because no existing Dart
+implementation of SentencePiece's `precompiled_charsmap` Darts double-array
+trie format could be found — see `plan_0_06_wi11_xlmr_tokenizer.md` (in the
+`kmdb` repository) and this package's `README.md` for the full investigation
+and rationale.
+
+A copy of the Apache License, Version 2.0 under which `spm_precompiled` is
+distributed can be obtained at:
+
+  https://www.apache.org/licenses/LICENSE-2.0

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -70,25 +71,28 @@ void main() {
   });
 
   group('quantise / dequantise', () {
-    test('round-trips a synthesised L2-normalised vector within SQ8 tolerance',
-        () {
-      // Build a 384-element vector on the unit sphere.
-      final raw = List.generate(384, (i) => cos(i * 0.1));
-      final norm = sqrt(raw.fold<double>(0.0, (s, v) => s + v * v));
-      final normalised =
-          Float32List.fromList(raw.map((v) => v / norm).toList());
+    test(
+      'round-trips a synthesised L2-normalised vector within SQ8 tolerance',
+      () {
+        // Build a 384-element vector on the unit sphere.
+        final raw = List.generate(384, (i) => cos(i * 0.1));
+        final norm = sqrt(raw.fold<double>(0.0, (s, v) => s + v * v));
+        final normalised = Float32List.fromList(
+          raw.map((v) => v / norm).toList(),
+        );
 
-      final quantised = quantise(normalised);
-      expect(quantised.length, equals(384));
+        final quantised = quantise(normalised);
+        expect(quantised.length, equals(384));
 
-      final recovered = dequantise(quantised);
-      expect(recovered.length, equals(384));
+        final recovered = dequantise(quantised);
+        expect(recovered.length, equals(384));
 
-      // Per-element error is bounded by one SQ8 step (2.0/255 ≈ 0.00784).
-      for (var i = 0; i < normalised.length; i++) {
-        expect(recovered[i], closeTo(normalised[i], 0.009));
-      }
-    });
+        // Per-element error is bounded by one SQ8 step (2.0/255 ≈ 0.00784).
+        for (var i = 0; i < normalised.length; i++) {
+          expect(recovered[i], closeTo(normalised[i], 0.009));
+        }
+      },
+    );
   });
 
   // ── Native ORT + full embedding pipeline ──────────────────────────────────
@@ -126,19 +130,24 @@ void main() {
       expect(sqrt(l2sq), closeTo(1.0, 1e-5));
     });
 
-    test('semantically similar pairs score higher than dissimilar pairs',
-        () async {
-      final (a, _) = await model!.embed('The cat sat on the mat');
-      final (b, _) = await model!.embed('A cat rested on a rug');
-      final (c, _) = await model!.embed('Stock market volatility increased sharply');
+    test(
+      'semantically similar pairs score higher than dissimilar pairs',
+      () async {
+        final (a, _) = await model!.embed('The cat sat on the mat');
+        final (b, _) = await model!.embed('A cat rested on a rug');
+        final (c, _) = await model!.embed(
+          'Stock market volatility increased sharply',
+        );
 
-      double dot(Float32List x, Float32List y) =>
-          Iterable.generate(x.length, (i) => x[i] * y[i])
-              .fold<double>(0.0, (s, v) => s + v);
+        double dot(Float32List x, Float32List y) => Iterable.generate(
+          x.length,
+          (i) => x[i] * y[i],
+        ).fold<double>(0.0, (s, v) => s + v);
 
-      // a·b (semantically close) must exceed a·c (unrelated topic).
-      expect(dot(a, b), greaterThan(dot(a, c)));
-    });
+        // a·b (semantically close) must exceed a·c (unrelated topic).
+        expect(dot(a, b), greaterThan(dot(a, c)));
+      },
+    );
 
     test('embed sets truncated=true when text exceeds 510 tokens', () async {
       final longText = List.filled(600, 'word').join(' ');
@@ -158,24 +167,172 @@ void main() {
       expect(truncated, isFalse);
     });
 
-    test('SQ8 round-trip of a real embedding stays within per-element tolerance',
-        () async {
-      final (embedding, _) =
-          await model!.embed('test sentence for quantisation fidelity');
-      final recovered = dequantise(quantise(embedding));
-      for (var i = 0; i < embedding.length; i++) {
-        expect(recovered[i], closeTo(embedding[i], 0.009));
+    test(
+      'SQ8 round-trip of a real embedding stays within per-element tolerance',
+      () async {
+        final (embedding, _) = await model!.embed(
+          'test sentence for quantisation fidelity',
+        );
+        final recovered = dequantise(quantise(embedding));
+        for (var i = 0; i < embedding.length; i++) {
+          expect(recovered[i], closeTo(embedding[i], 0.009));
+        }
+      },
+    );
+
+    test(
+      'consecutive embeds of the same text return identical vectors',
+      () async {
+        const text = 'determinism check';
+        final (first, _) = await model!.embed(text);
+        final (second, _) = await model!.embed(text);
+        for (var i = 0; i < first.length; i++) {
+          expect(second[i], equals(first[i]));
+        }
+      },
+    );
+  });
+
+  // ── XlmRobertaTokenizer parity gate ────────────────────────────────────────
+  // Downloads the real `multilingual-e5-small` tokenizer.json (~17 MB) on
+  // first run; subsequent runs use the cache in modelCache. This is a direct
+  // HTTP fetch (not ModelDownloader/ModelCatalog — multilingual-e5-small is
+  // not yet a registered catalog model; that is a separate, later embedding
+  // model work item) with no checksum verification, since this test only
+  // needs *a* copy of the real vocabulary to exercise byte-exact parity, not
+  // model-distribution-grade integrity guarantees.
+  //
+  // What this verifies:
+  //   - XlmRobertaTokenizer.load() correctly extracts and parses the real
+  //     precompiled_charsmap trie and the real 250k-entry Unigram vocabulary.
+  //   - encode() reproduces real HuggingFace AutoTokenizer output byte-exactly
+  //     on all 11 smoke-corpus entries (ar, edge_fullwidth, edge_nfd,
+  //     edge_punct, en, hi, ko, ru, th, vi, zh) -- the same gate Phase 0's
+  //     spike passed, now exercised against production code.
+  //   - Padding, attention mask, and truncation behave correctly against the
+  //     real vocabulary (pad id 1, not BERT's 0).
+  //
+  // This intentionally reintroduces a huggingface.co network dependency at
+  // test time -- an accepted, explicitly-stated divergence from this
+  // package's usual "commit small fixtures, run fully offline" preference,
+  // because committing the full 17 MB file (98%+ an unused-for-this-purpose
+  // 250k-entry vocab table) is worse. See
+  // `plan_0_06_wi11_xlmr_tokenizer.md`'s Phase 1 "Tests" section.
+
+  group('XlmRobertaTokenizer (multilingual-e5-small)', () {
+    late XlmRobertaTokenizer tokenizer;
+    late Map<String, dynamic> smokeCorpus;
+    late Map<String, dynamic> referenceIds;
+
+    setUpAll(() async {
+      final tokenizerCacheDir = Directory(
+        '${modelCache.path}/multilingual-e5-small',
+      )..createSync(recursive: true);
+      final tokenizerJsonPath = '${tokenizerCacheDir.path}/tokenizer.json';
+      final tokenizerJsonFile = File(tokenizerJsonPath);
+
+      // Download once; reuse the cache on subsequent runs. A basic size
+      // sanity check catches a truncated download or an HTML error page
+      // masquerading as a 200 response (the real file is ~17 MB).
+      if (!tokenizerJsonFile.existsSync() ||
+          tokenizerJsonFile.lengthSync() < 1000000) {
+        debugPrint('Downloading multilingual-e5-small tokenizer.json...');
+        final client = HttpClient();
+        try {
+          final request = await client.getUrl(
+            Uri.parse(
+              'https://huggingface.co/intfloat/multilingual-e5-small/'
+              'resolve/main/tokenizer.json',
+            ),
+          );
+          final response = await request.close();
+          if (response.statusCode != 200) {
+            throw HttpException(
+              'Failed to download tokenizer.json: '
+              'HTTP ${response.statusCode}',
+            );
+          }
+          await response.pipe(tokenizerJsonFile.openWrite());
+        } finally {
+          client.close();
+        }
+      }
+
+      tokenizer = await XlmRobertaTokenizer.load(tokenizerJsonPath);
+
+      // The smoke-corpus fixtures are committed under the package's own
+      // test/fixtures/ (one directory above integration_test_app/, this
+      // app's working directory when run via `flutter test`).
+      final fixturesDir = '${Directory.current.path}/../test/fixtures';
+      smokeCorpus =
+          jsonDecode(
+                File('$fixturesDir/xlmr_smoke_corpus.json').readAsStringSync(),
+              )
+              as Map<String, dynamic>;
+      referenceIds =
+          jsonDecode(
+                File('$fixturesDir/xlmr_reference_ids.json').readAsStringSync(),
+              )
+              as Map<String, dynamic>;
+    });
+
+    test('achieves byte-exact parity with real AutoTokenizer output on all '
+        '11 smoke-corpus entries', () {
+      for (final key in referenceIds.keys) {
+        final text = smokeCorpus[key] as String;
+        final expected = (referenceIds[key] as List).cast<int>();
+        final output = tokenizer.encode(text);
+
+        final actualContentIds = output.inputIds.take(expected.length).toList();
+        expect(
+          actualContentIds,
+          equals(expected),
+          reason: 'token id mismatch for smoke-corpus entry "$key"',
+        );
+
+        // Everything after the real content must be <pad> (id 1), not
+        // BertTokenizer's [PAD] (id 0).
+        for (var i = expected.length; i < output.inputIds.length; i++) {
+          expect(
+            output.inputIds[i],
+            equals(1),
+            reason: '$key: expected <pad> (1) at padded index $i',
+          );
+          expect(output.attentionMask[i], equals(0));
+        }
       }
     });
 
-    test('consecutive embeds of the same text return identical vectors',
-        () async {
-      const text = 'determinism check';
-      final (first, _) = await model!.embed(text);
-      final (second, _) = await model!.embed(text);
-      for (var i = 0; i < first.length; i++) {
-        expect(second[i], equals(first[i]));
+    test('output arrays are exactly 512 (default maxLength) elements', () {
+      final output = tokenizer.encode(smokeCorpus['en'] as String);
+      expect(output.inputIds.length, equals(512));
+      expect(output.attentionMask.length, equals(512));
+      expect(output.tokenTypeIds.length, equals(512));
+    });
+
+    test('tokenTypeIds are all zeros (XLM-RoBERTa has no segment ids)', () {
+      final output = tokenizer.encode(smokeCorpus['en'] as String);
+      expect(output.tokenTypeIds.every((v) => v == 0), isTrue);
+    });
+
+    test('none of the smoke-corpus entries are truncated (all well under 512 '
+        'tokens)', () {
+      for (final key in referenceIds.keys) {
+        final text = smokeCorpus[key] as String;
+        final output = tokenizer.encode(text);
+        expect(
+          output.truncated,
+          isFalse,
+          reason: '$key unexpectedly reported truncated',
+        );
       }
+    });
+
+    test('text exceeding 512 tokens sets truncated=true', () {
+      final longText = List.filled(600, 'hello').join(' ');
+      final output = tokenizer.encode(longText);
+      expect(output.truncated, isTrue);
+      expect(output.inputIds.length, equals(512));
     });
   });
 }

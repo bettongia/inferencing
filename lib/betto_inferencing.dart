@@ -16,9 +16,11 @@
 ///
 /// Provides [OnnxEmbeddingModel] (implements [EmbeddingModel]) backed by the
 /// BGE Small En v1.5 model via the `betto_onnxrt` [OnnxRuntime] API, a
-/// [BertTokenizer] for BERT WordPiece tokenisation, [quantise]/[dequantise]
-/// helpers for SQ8 vector quantisation, and a [ModelCatalog] of supported
-/// models with download-on-demand via [ModelDownloader] from `betto_onnxrt`.
+/// [BertTokenizer] for BERT WordPiece tokenisation, an [XlmRobertaTokenizer]
+/// for XLM-RoBERTa-family SentencePiece/Unigram tokenisation (e.g.
+/// `multilingual-e5-small`), [quantise]/[dequantise] helpers for SQ8 vector
+/// quantisation, and a [ModelCatalog] of supported models with
+/// download-on-demand via [ModelDownloader] from `betto_onnxrt`.
 ///
 /// ## Platform support
 ///
@@ -55,3 +57,4 @@ export 'src/embedding_model.dart' show EmbeddingModel;
 export 'src/model_catalog.dart' show ModelCatalog;
 export 'src/onnx_embedding_model.dart' show OnnxEmbeddingModel;
 export 'src/sq8.dart' show quantise, dequantise;
+export 'src/xlmr_tokenizer.dart' show XlmRobertaTokenizer;
