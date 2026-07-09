@@ -85,9 +85,17 @@ void main() {
       expect(result, equals('▁Hello▁World'));
     });
 
-    test('empty string still receives the dummy-prefix metaspace symbol', () {
+    test('empty string is left empty, not given a dummy-prefix metaspace '
+        'symbol', () {
+      // Found via WI-4's broader parity corpus
+      // (test/fixtures/xlmr_parity_corpus.json's edge_empty entry): real
+      // AutoTokenizer output for "" is just [<s>, </s>], with no content
+      // token -- unconditionally adding the dummy prefix here would turn ""
+      // into "▁", which the real vocabulary tokenizes as a standalone piece
+      // (id 6), producing a spurious extra token. See `_metaspace`'s doc
+      // comment for the full explanation.
       final result = XlmRobertaTokenizer.normalizeForTokenization(_trie, '');
-      expect(result, equals('▁'));
+      expect(result, isEmpty);
     });
   });
 

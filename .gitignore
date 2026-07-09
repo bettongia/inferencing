@@ -7,6 +7,10 @@
 .buildlog/
 .history
 
+# Cached corpus/model downloads (fetched by tool/generate_*.dart) -- same
+# convention as betto_lang_detector's tool/.cache/.
+tool/.cache/
+
 
 
 # Flutter repo-specific
