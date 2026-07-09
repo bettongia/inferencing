@@ -109,16 +109,21 @@ make
 
 ## Implementation Status
 
-v0.1.0-dev.1 core feature set is complete:
+Core feature set is complete:
 
-- `EmbeddingModel` — abstract interface for text-to-vector embedding
-- `OnnxEmbeddingModel` — ONNX Runtime implementation backed by BGE Small En v1.5
-- `BertTokenizer` + `TokenizerOutput` — BERT WordPiece tokenizer
-- `ModelCatalog` — allowlist with download-on-demand gating
+- `EmbeddingModel` — abstract interface for text-to-vector embedding, with an
+  `EmbeddingKind` (`document` / `query`) parameter on `embed()` for models with
+  a passage/query prefix convention
+- `OnnxEmbeddingModel` — ONNX Runtime implementation; selects between
+  `bge-small-en-v1.5` (English-only) and `multilingual-e5-small`
+  (~100 languages) via `ModelSpec.meta['tokenizerFamily']`
+- `ModelTokenizer` — shared interface implemented by `BertTokenizer` (BERT
+  WordPiece) and `XlmRobertaTokenizer` (XLM-RoBERTa-family SentencePiece/
+  Unigram), both returning `TokenizerOutput`
+- `ModelCatalog` — allowlist with download-on-demand gating. Validated:
+  `bge-small-en-v1.5`, `multilingual-e5-small`. `placeholder-model` is a
+  permanent, never-validated internal test fixture (not a real model)
 - `quantise` / `dequantise` — SQ8 scalar quantization helpers
-
-`bge-m3-v1.0` is registered in `ModelCatalog` but not yet validated; it will
-throw `UnsupportedError` if passed to `ModelCatalog.lookup`.
 
 ## Architecture
 

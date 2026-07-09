@@ -83,33 +83,111 @@ final class ModelCatalog implements AllowlistProvider {
       // Embedding vector dimension. Read by OnnxEmbeddingModel as
       // `spec.meta['dimensions'] as int`.
       'dimensions': 384,
+      // Selects BertTokenizer in OnnxEmbeddingModel.load(). Set explicitly
+      // (not left absent) so a future third tokenizer family can't be
+      // silently misresolved by a ModelSpec that forgot this key.
+      'tokenizerFamily': 'bert',
+      // No queryPrefix/documentPrefix — BGE Small En v1.5 has no
+      // passage/query prefix convention, so OnnxEmbeddingModel.embed()'s
+      // prefix step is a no-op for this model regardless of EmbeddingKind.
     },
   );
 
-  /// BGE-M3 (BAAI) — multilingual, 1024-dimensional.
+  /// `multilingual-e5-small` (intfloat) — multilingual, 384-dimensional.
   ///
-  /// Registered as infrastructure for v0.08 model migration. **Not yet
-  /// validated or tested** — [lookup] will throw [UnsupportedError] until
-  /// the v0.08 validation plan is complete.
-  static final _bgeM3V10 = ModelSpec(
-    id: 'bge-m3-v1.0',
+  /// Same embedding dimension as [_bgeSmallEnV15], so adopting it requires no
+  /// SQ8/index-format change in a consuming database. Registered as this
+  /// project's first cross-lingual embedding model (WI-4); XLM-RoBERTa-family
+  /// SentencePiece/Unigram tokenisation via [XlmRobertaTokenizer].
+  ///
+  /// **Registers the plain fp32 `model.onnx` export (~470 MB) — not a
+  /// quantized or GPU-oriented variant.** `intfloat/multilingual-e5-small`'s
+  /// `onnx/` directory also publishes `model_qint8_avx512_vnni.onnx`
+  /// (x86 AVX512-VNNI int8, a poor fit for this project's largely-ARM
+  /// targets) and `model_O4.onnx` (an ORT graph-optimizer export with fp16
+  /// mixed precision intended for GPU inference, not the CPU-only execution
+  /// providers `betto_onnxrt` supports). The plain export matches
+  /// [_bgeSmallEnV15]'s own registration precedent (also a plain fp32
+  /// `model.onnx`) and avoids stacking an unvalidated second source of
+  /// numerical drift underneath the storage layer's own SQ8 quantization.
+  /// Do not "helpfully" swap in a smaller quantized/optimized variant without
+  /// a dedicated accuracy-validation pass — see
+  /// `docs/plans/plan_0_06_wi4_multilingual_embedding_model.md` (in the
+  /// `kmdb` repo) for the full trade-off analysis.
+  ///
+  /// **Note the meaningfully larger download** compared to BGE Small En v1.5
+  /// (~470 MB vs. ~127 MB, ~3.7×) — worth surfacing in any first-use download
+  /// UX, especially on mobile.
+  static final _multilingualE5Small = ModelSpec(
+    id: 'multilingual-e5-small',
     files: {
       'onnx': ModelFile(
         url: Uri.parse(
-          'https://huggingface.co/BAAI/bge-m3/resolve/main/onnx/model.onnx',
+          'https://huggingface.co/intfloat/multilingual-e5-small/resolve/main/onnx/model.onnx',
         ),
+        // SHA-256 of the exact model file used in CI; update if upstream
+        // changes.
+        sha256: _multilingualE5SmallOnnxSha256,
+      ),
+      'vocab': ModelFile(
+        url: Uri.parse(
+          'https://huggingface.co/intfloat/multilingual-e5-small/resolve/main/tokenizer.json',
+        ),
+        sha256: _multilingualE5SmallTokenizerJsonSha256,
+      ),
+    },
+    meta: {
+      'dimensions': 384,
+      // Selects XlmRobertaTokenizer in OnnxEmbeddingModel.load().
+      'tokenizerFamily': 'xlmr',
+      // multilingual-e5-small requires a mandatory "query: " / "passage: "
+      // prefix per its model card — without it, retrieval quality degrades
+      // silently (no error, just worse rankings). OnnxEmbeddingModel.embed()
+      // applies these based on the caller's EmbeddingKind.
+      'queryPrefix': 'query: ',
+      'documentPrefix': 'passage: ',
+    },
+  );
+
+  /// SHA-256 of `multilingual-e5-small`'s `onnx/model.onnx`, as downloaded
+  /// and verified by `tool/register_model.dart` — see that script's own doc
+  /// comment for how to regenerate/re-verify this value.
+  static const _multilingualE5SmallOnnxSha256 =
+      'ca456c06b3a9505ddfd9131408916dd79290368331e7d76bb621f1cba6bc8665';
+
+  /// SHA-256 of `multilingual-e5-small`'s `tokenizer.json`, as downloaded and
+  /// verified by `tool/register_model.dart`.
+  static const _multilingualE5SmallTokenizerJsonSha256 =
+      '0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39';
+
+  /// Internal fixture — **not a real model.**
+  ///
+  /// Exists solely so tests can exercise the catalog's "registered but not
+  /// validated" gating behaviour (throws [UnsupportedError] from [lookup])
+  /// against a stable id that will never be flipped to validated. Its file
+  /// URLs deliberately point at a non-resolvable host so any accidental
+  /// real-world use (someone actually trying to download or load it) fails
+  /// fast and obviously rather than silently. See `plan_0_06_wi4_multilingual_embedding_model.md`'s
+  /// Q5 for why this replaced the previous `bge-m3-v1.0` stub entry (which
+  /// had placeholder all-zero checksums and could never actually be
+  /// downloaded or validated).
+  ///
+  /// **Must never be set to `true` in [_validated].**
+  static final _placeholderModel = ModelSpec(
+    id: 'placeholder-model',
+    files: {
+      'onnx': ModelFile(
+        url: Uri.parse('https://example.invalid/placeholder/model.onnx'),
         sha256:
             '0000000000000000000000000000000000000000000000000000000000000000',
       ),
       'vocab': ModelFile(
-        url: Uri.parse(
-          'https://huggingface.co/BAAI/bge-m3/resolve/main/sentencepiece.bpe.model',
-        ),
+        url: Uri.parse('https://example.invalid/placeholder/vocab.txt'),
         sha256:
             '0000000000000000000000000000000000000000000000000000000000000000',
       ),
     },
-    meta: {'dimensions': 1024},
+    meta: {'dimensions': 0},
   );
 
   // ── Internal catalog and validation state ─────────────────────────────────
@@ -120,7 +198,8 @@ final class ModelCatalog implements AllowlistProvider {
   /// `static final` (not const, due to `Uri` not being const in Dart).
   static Map<String, ModelSpec> get _catalog => {
     'bge-small-en-v1.5': _bgeSmallEnV15,
-    'bge-m3-v1.0': _bgeM3V10,
+    'multilingual-e5-small': _multilingualE5Small,
+    'placeholder-model': _placeholderModel,
   };
 
   /// Validation state for each registered model.
@@ -131,7 +210,9 @@ final class ModelCatalog implements AllowlistProvider {
   /// unvalidated.
   static const Map<String, bool> _validated = {
     'bge-small-en-v1.5': true,
-    'bge-m3-v1.0': false,
+    'multilingual-e5-small': true,
+    // Deliberately, permanently false — see _placeholderModel's doc comment.
+    'placeholder-model': false,
   };
 
   // ── Public API ─────────────────────────────────────────────────────────────
@@ -193,7 +274,8 @@ final class ModelCatalog implements AllowlistProvider {
   /// final downloader = ModelDownloader(allowlist: ModelCatalog());
   /// ```
   ///
-  /// This permits downloading of unvalidated models (e.g. BGE-M3 during
+  /// This permits downloading of unvalidated models (e.g.
+  /// `multilingual-e5-small` prior to its validation pass completing during
   /// development). Call [lookup] (which checks validation status) before
   /// loading a model for inference.
   @override

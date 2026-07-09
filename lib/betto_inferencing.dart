@@ -14,13 +14,15 @@
 
 /// ONNX Runtime inference and embedding models for dense text retrieval.
 ///
-/// Provides [OnnxEmbeddingModel] (implements [EmbeddingModel]) backed by the
-/// BGE Small En v1.5 model via the `betto_onnxrt` [OnnxRuntime] API, a
-/// [BertTokenizer] for BERT WordPiece tokenisation, an [XlmRobertaTokenizer]
-/// for XLM-RoBERTa-family SentencePiece/Unigram tokenisation (e.g.
-/// `multilingual-e5-small`), [quantise]/[dequantise] helpers for SQ8 vector
-/// quantisation, and a [ModelCatalog] of supported models with
-/// download-on-demand via [ModelDownloader] from `betto_onnxrt`.
+/// Provides [OnnxEmbeddingModel] (implements [EmbeddingModel]) backed by
+/// either BGE Small En v1.5 or `multilingual-e5-small` via the
+/// `betto_onnxrt` [OnnxRuntime] API, a [ModelTokenizer] abstraction over
+/// [BertTokenizer] (BERT WordPiece) and [XlmRobertaTokenizer]
+/// (XLM-RoBERTa-family SentencePiece/Unigram), an [EmbeddingKind] parameter
+/// on [EmbeddingModel.embed] distinguishing indexing- from query-time text,
+/// [quantise]/[dequantise] helpers for SQ8 vector quantisation, and a
+/// [ModelCatalog] of supported models with download-on-demand via
+/// [ModelDownloader] from `betto_onnxrt`.
 ///
 /// ## Platform support
 ///
@@ -53,8 +55,9 @@ export 'package:betto_onnxrt/betto_onnxrt.dart'
     show DownloadProgress, ModelDownloader, ModelFile, ModelSpec, ResolvedModel;
 
 export 'src/bert_tokenizer.dart' show BertTokenizer, TokenizerOutput;
-export 'src/embedding_model.dart' show EmbeddingModel;
+export 'src/embedding_model.dart' show EmbeddingKind, EmbeddingModel;
 export 'src/model_catalog.dart' show ModelCatalog;
+export 'src/model_tokenizer.dart' show ModelTokenizer;
 export 'src/onnx_embedding_model.dart' show OnnxEmbeddingModel;
 export 'src/sq8.dart' show quantise, dequantise;
 export 'src/xlmr_tokenizer.dart' show XlmRobertaTokenizer;

@@ -5,7 +5,7 @@ toc-title: "Contents"
 ...
 
 - **Package:** `betto_inferencing`
-- **Version:** 0.1.0-dev.1
+- **Version:** 0.1.0-dev.3
 - **Dart SDK:** ^3.12.0
 
 # Purpose and scope
@@ -15,9 +15,13 @@ retrieval inside the Bettongia knowledge workspace. It is a **native-only**
 pure-Dart package (no Flutter dependency) that:
 
 - wraps the `betto_onnxrt` ONNX Runtime FFI binding into a high-level
-  `EmbeddingModel` interface;
-- ships a BERT WordPiece tokenizer (`BertTokenizer`) suitable for BGE-family
-  models;
+  `EmbeddingModel` interface, with an `EmbeddingKind` parameter distinguishing
+  index-time ("document") from query-time ("query") text;
+- ships a `ModelTokenizer` abstraction implemented by a BERT WordPiece
+  tokenizer (`BertTokenizer`, suitable for BGE-family models) and an
+  XLM-RoBERTa-family SentencePiece/Unigram tokenizer (`XlmRobertaTokenizer`,
+  suitable for `multilingual-e5-small`), selected at runtime by
+  `OnnxEmbeddingModel.load` based on `ModelSpec.meta['tokenizerFamily']`;
 - registers and gates supported models via `ModelCatalog`;
 - provides SQ8 scalar quantization helpers (`quantise`/`dequantise`) for
   compact index storage.
@@ -37,7 +41,8 @@ pipeline. Those concerns belong to the consuming layer.
                  │ interface
 ┌────────────────▼────────────────────┐
 │         betto_inferencing           │
-│  OnnxEmbeddingModel · BertTokenizer │
+│  OnnxEmbeddingModel                 │
+│  BertTokenizer · XlmRobertaTokenizer│
 │  ModelCatalog · SQ8 helpers         │
 └────────────────┬────────────────────┘
                  │ FFI
@@ -76,8 +81,11 @@ embedding  [D]  unit-norm Float32List
 |---|---|
 | `betto_onnxrt` | ORT FFI binding, `ModelDownloader`, `ModelSpec` |
 | `betto_lexical` | `Tokenizer` interface, `RegExpTokenizer` |
+| `dart_sentencepiece_tokenizer` | Vocabulary loading, Unigram Viterbi, BOS/EOS post-processing inside `XlmRobertaTokenizer` |
 | `crypto` | SHA-256 verification in `ModelDownloader` |
 | `path` | Path manipulation in `OnnxEmbeddingModel.load` |
+| `meta` | `@visibleForTesting` annotations |
+| `characters` | Grapheme-aware iteration inside `CharsmapTrie` |
 
 `betto_lexical` supplies the word segmentation abstraction used inside
 `BertTokenizer`. The default implementation is `RegExpTokenizer`; callers can
@@ -95,7 +103,10 @@ top-level library.
 EmbeddingModel
   String get modelId
   int get dimensions
-  Future<(Float32List embedding, bool truncated)> embed(String text)
+  Future<(Float32List embedding, bool truncated)> embed(
+    String text, {
+    EmbeddingKind kind = EmbeddingKind.document,
+  })
   void dispose()
 ```
 
@@ -105,8 +116,40 @@ EmbeddingModel
 - The returned `Float32List` has exactly `dimensions` elements.
 - Empty or whitespace-only input must not throw; implementations return a
   zero vector with `truncated = false`.
+- `kind` states whether `text` is being indexed (`EmbeddingKind.document`,
+  the default) or is a search query (`EmbeddingKind.query`). Models with a
+  passage/query prefix convention (e.g. `multilingual-e5-small`) apply the
+  matching prefix based on `kind`; models without one (e.g.
+  `bge-small-en-v1.5`) ignore it. Callers that know which case they're in
+  should always pass the matching `kind` explicitly — silently defaulting
+  degrades retrieval quality for models that use the distinction, without
+  erroring.
 - `dispose` must be called exactly once when the model is no longer needed.
   Calling `embed` after `dispose` is undefined behaviour.
+
+## `EmbeddingKind`
+
+Enum in `lib/src/embedding_model.dart`: `document` / `query`. Selects
+`ModelSpec.meta`'s `'documentPrefix'` / `'queryPrefix'` inside
+`OnnxEmbeddingModel.embed`, if the loaded model's spec defines them (see
+`ModelCatalog` below). A no-op for models with neither key.
+
+## `ModelTokenizer`
+
+Shared interface in `lib/src/model_tokenizer.dart`, implemented by
+`BertTokenizer` and `XlmRobertaTokenizer`:
+
+```
+ModelTokenizer
+  TokenizerOutput encode(String text)
+```
+
+Both tokenizer families return the same concrete `TokenizerOutput` type, so
+`OnnxEmbeddingModel` has a single `_tokenizer.encode(text)` call site
+regardless of which family is loaded. `OnnxEmbeddingModel.load` selects the
+concrete implementation from `ModelSpec.meta['tokenizerFamily']` (`'bert'` or
+`'xlmr'`) — the key must be present and recognised; an absent or unrecognised
+value throws `ArgumentError` synchronously, before any I/O.
 
 ## `OnnxEmbeddingModel`
 
@@ -134,9 +177,15 @@ static Future<OnnxEmbeddingModel> load({
 | `modelPath` + `spec` | Load from disk; identity from supplied spec |
 | neither | Throws `ArgumentError` synchronously |
 
+`tokenizer` (word-segmentation override) only applies when the resolved
+spec's `tokenizerFamily` is `'bert'`; ignored for `'xlmr'` models, which have
+no equivalent seam.
+
 **Errors**
 
-- `ArgumentError` — neither `modelPath` nor `cacheDir` supplied.
+- `ArgumentError` — neither `modelPath` nor `cacheDir` supplied, or the
+  resolved spec's `meta['tokenizerFamily']` is missing or not one of `'bert'`
+  / `'xlmr'`. Both checks run synchronously, before any I/O.
 - `UnsupportedError` — model file not found on disk.
 - `Exception` — ORT library cannot be loaded or model is corrupt.
 
@@ -148,7 +197,8 @@ the same isolate that called `load`. For Flutter UI threads, wrap calls in
 
 ### ONNX inputs / outputs
 
-The BGE models require three `int64` inputs shaped `[1, seqLen]`:
+Both registered model families require three `int64` inputs shaped
+`[1, seqLen]`:
 
 | Input name | Source |
 |---|---|
@@ -162,7 +212,9 @@ embedding.
 
 ## `BertTokenizer`
 
-BERT WordPiece tokenizer in `lib/src/bert_tokenizer.dart`.
+BERT WordPiece tokenizer in `lib/src/bert_tokenizer.dart`. Implements
+`ModelTokenizer`; selected by `OnnxEmbeddingModel.load` for models whose spec
+sets `meta['tokenizerFamily'] = 'bert'` (e.g. `bge-small-en-v1.5`).
 
 ### Tokenization pipeline
 
@@ -203,6 +255,24 @@ Value type returned by `BertTokenizer.encode`. All three arrays have exactly
 | `tokenTypeIds` | `Int64List` | All zeros (single-segment input) |
 | `truncated` | `bool` | True if input exceeded token budget |
 
+## `XlmRobertaTokenizer`
+
+XLM-RoBERTa-family SentencePiece/Unigram tokenizer in
+`lib/src/xlmr_tokenizer.dart`, e.g. for `multilingual-e5-small`. Implements
+`ModelTokenizer`; selected by `OnnxEmbeddingModel.load` for models whose spec
+sets `meta['tokenizerFamily'] = 'xlmr'`. Returns the same `TokenizerOutput`
+type `BertTokenizer` does (`tokenTypeIds` all-zero, since XLM-RoBERTa has no
+segment ids; padding uses the loaded vocabulary's own pad id rather than
+BERT's `padId = 0`).
+
+Composes a from-scratch `CharsmapTrie` normalizer (`lib/src/charsmap_trie.dart`
+— a Darts double-array trie reader for SentencePiece's `precompiled_charsmap`
+normalizer, ported from the Rust `spm_precompiled` crate; see `NOTICE`) with
+`dart_sentencepiece_tokenizer`'s public API for vocabulary loading, Unigram
+Viterbi decoding, and `<s>`/`</s>` post-processing. See this package's
+`README.md` ("Why not `dart_sentencepiece_tokenizer` alone") for the full
+rationale and the two upstream defects this works around.
+
 ## `ModelCatalog`
 
 Registered model allowlist in `lib/src/model_catalog.dart`. Implements
@@ -211,10 +281,26 @@ Registered model allowlist in `lib/src/model_catalog.dart`. Implements
 
 ### Registered models
 
-| Model ID | Dimensions | Language | Status |
-|---|---|---|---|
-| `bge-small-en-v1.5` | 384 | English | Validated |
-| `bge-m3-v1.0` | 1024 | Multilingual | Registered, not yet validated |
+| Model ID | Dimensions | Language | tokenizerFamily | Status |
+|---|---|---|---|---|
+| `bge-small-en-v1.5` | 384 | English | `bert` | Validated (~127 MB download) |
+| `multilingual-e5-small` | 384 | ~100 languages | `xlmr` | Validated (~470 MB download) |
+| `placeholder-model` | — | — | — | Internal test fixture, never validated |
+
+`multilingual-e5-small`'s spec also carries `meta['queryPrefix'] = 'query: '`
+and `meta['documentPrefix'] = 'passage: '` (see `EmbeddingKind` above).
+`bge-small-en-v1.5` has neither key.
+
+`placeholder-model` is not a real model — it exists solely so tests can
+exercise the "registered but not validated" gating path (`UnsupportedError`
+from `lookup`) against a stable id that will never be flipped to validated.
+Its file URLs point at a non-resolvable host (`example.invalid`) so a misuse
+fails fast. It replaced a previous `bge-m3-v1.0` stub entry whose checksums
+were unverifiable placeholders; registering BGE-M3 properly (a genuinely
+larger, 1024-dimensional multilingual model) is tracked as separate future
+work — its ONNX export exceeds the 2 GB single-file limit and needs
+`ModelSpec`/`ModelDownloader` support for a split `model.onnx` +
+`model.onnx_data` layout first.
 
 ### Public API
 
@@ -334,6 +420,7 @@ android {
 | Condition | Type | Where thrown |
 |---|---|---|
 | Neither `modelPath` nor `cacheDir` supplied | `ArgumentError` | `OnnxEmbeddingModel.load` |
+| `tokenizerFamily` missing or unrecognised | `ArgumentError` | `OnnxEmbeddingModel.load` |
 | Model file not found on disk | `UnsupportedError` | `OnnxEmbeddingModel.load` |
 | Unknown model ID in catalog | `ArgumentError` | `ModelCatalog.lookup` |
 | Registered but not yet validated model | `UnsupportedError` | `ModelCatalog.lookup` |

@@ -24,9 +24,7 @@ class _App extends StatelessWidget {
     return const MaterialApp(
       title: 'betto_inferencing integration tests',
       home: Scaffold(
-        body: Center(
-          child: Text('betto_inferencing integration test harness'),
-        ),
+        body: Center(child: Text('betto_inferencing integration test harness')),
       ),
     );
   }

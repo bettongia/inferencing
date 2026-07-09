@@ -613,11 +613,12 @@ void main() {
       test(
         'permits download for a registered model (even if unvalidated)',
         () async {
-          // bge-m3-v1.0 is registered in ModelCatalog but isValidated=false.
-          // The allowlist only checks registration, not validation status.
-          // We just want the allowlist NOT to reject it.
-          final bgeM3Spec = ModelCatalog.all.firstWhere(
-            (s) => s.id == 'bge-m3-v1.0',
+          // placeholder-model is registered in ModelCatalog but
+          // isValidated=false (permanently, by design — see ModelCatalog's
+          // doc comment). The allowlist only checks registration, not
+          // validation status. We just want the allowlist NOT to reject it.
+          final placeholderSpec = ModelCatalog.all.firstWhere(
+            (s) => s.id == 'placeholder-model',
           );
 
           final onnxBytes = [1, 2, 3];
@@ -625,14 +626,14 @@ void main() {
 
           // Craft a spec with matching checksums for the mock server.
           final testSpec = ModelSpec(
-            id: bgeM3Spec.id,
+            id: placeholderSpec.id,
             files: {
               'onnx': ModelFile(
-                url: bgeM3Spec.files['onnx']!.url,
+                url: placeholderSpec.files['onnx']!.url,
                 sha256: _sha256Hex(onnxBytes),
               ),
               'vocab': ModelFile(
-                url: bgeM3Spec.files['vocab']!.url,
+                url: placeholderSpec.files['vocab']!.url,
                 sha256: _sha256Hex(vocabBytes),
               ),
             },
@@ -655,7 +656,7 @@ void main() {
             testSpec,
             cacheDir: tempDir.path,
           );
-          expect(resolved.spec.id, equals('bge-m3-v1.0'));
+          expect(resolved.spec.id, equals('placeholder-model'));
         },
       );
     });

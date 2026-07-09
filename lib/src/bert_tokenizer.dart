@@ -18,6 +18,8 @@ import 'dart:typed_data';
 import 'package:betto_lexical/betto_lexical.dart'
     show Tokenizer, RegExpTokenizer;
 
+import 'model_tokenizer.dart' show ModelTokenizer;
+
 /// A BERT WordPiece tokenizer backed by a `vocab.txt` file.
 ///
 /// Converts arbitrary text into BERT token IDs suitable for feeding into the
@@ -48,7 +50,7 @@ import 'package:betto_lexical/betto_lexical.dart'
 /// final tokenizer = await BertTokenizer.load(vocabPath,
 ///   tokenizer: IcuTokenizer());
 /// ```
-class BertTokenizer {
+class BertTokenizer implements ModelTokenizer {
   final Map<String, int> _vocab;
   final int _maxLength;
   final Tokenizer _tokenizer;
@@ -107,6 +109,7 @@ class BertTokenizer {
   /// All three output arrays ([TokenizerOutput.inputIds],
   /// [TokenizerOutput.attentionMask], [TokenizerOutput.tokenTypeIds]) have
   /// exactly [maxLength] elements.
+  @override
   TokenizerOutput encode(String text) {
     final normalized = _normalize(text);
     final words = _tokenizer.tokenise(normalized);

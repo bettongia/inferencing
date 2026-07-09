@@ -3,21 +3,34 @@
 ONNX Runtime inference and embedding models for dense text retrieval. Part of
 the [Bettongia](https://github.com/bettongia) open-source family.
 
-Provides `OnnxEmbeddingModel` backed by
-[BGE Small En v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5) via
-[`betto_onnxrt`](https://github.com/bettongia/onnxrt), a BERT WordPiece
-tokenizer, SQ8 vector quantization helpers, and a validated model catalog with
-download-on-demand.
+Provides `OnnxEmbeddingModel` backed by either
+[BGE Small En v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5)
+(English-only) or
+[`multilingual-e5-small`](https://huggingface.co/intfloat/multilingual-e5-small)
+(cross-lingual) via [`betto_onnxrt`](https://github.com/bettongia/onnxrt), a
+`ModelTokenizer` abstraction over BERT WordPiece and XLM-RoBERTa-family
+SentencePiece/Unigram tokenization, SQ8 vector quantization helpers, and a
+validated model catalog with download-on-demand.
 
 ## Features
 
-- **`OnnxEmbeddingModel`** — loads a BGE embedding model and embeds text into
+- **`OnnxEmbeddingModel`** — loads an embedding model and embeds text into
   L2-normalised float32 vectors. Supports download-on-demand (SHA-256 verified)
   or loading from an explicit file path. Accepts an optional `tokenizer`
-  parameter to swap in a custom word segmentation backend (e.g. `IcuTokenizer`
-  from `package:betto_icu`).
+  parameter to swap in a custom word segmentation backend for BERT-family
+  models (e.g. `IcuTokenizer` from `package:betto_icu`). Selects the concrete
+  `ModelTokenizer` implementation via `ModelSpec.meta['tokenizerFamily']`.
 - **`EmbeddingModel`** — abstract interface, allowing the consuming application
   or database to depend on the interface without the FFI-heavy implementation.
+  `embed(text, {kind})` takes an `EmbeddingKind` (`document` or `query`, default
+  `document`) so models with a mandatory passage/query prefix convention (e.g.
+  `multilingual-e5-small`) apply the right one automatically.
+- **`EmbeddingKind`** — `document` / `query`. Selects `ModelSpec.meta`'s
+  `'documentPrefix'` / `'queryPrefix'`, if the loaded model defines them. A
+  no-op for models with neither key (e.g. `bge-small-en-v1.5`).
+- **`ModelTokenizer`** — shared interface implemented by `BertTokenizer` and
+  `XlmRobertaTokenizer`, letting `OnnxEmbeddingModel` select either at runtime
+  from a single `encode(String) -> TokenizerOutput` call site.
 - **`BertTokenizer`** — BERT WordPiece tokenizer loaded from a `vocab.txt` file.
   Normalises, segments, and assembles `[CLS]`/`[SEP]`-padded token ID sequences
   ready for ORT inference. Word segmentation delegates to a `betto_lexical`
@@ -34,8 +47,10 @@ download-on-demand.
   download-on-demand gating. `ModelCatalog.lookup(id)` returns the `ModelSpec`
   for a validated model; `ModelCatalog.isKnown(id)` checks registration without
   validating; `ModelCatalog.defaultModelId` is `'bge-small-en-v1.5'`. Currently
-  validated: `bge-small-en-v1.5` (384-d). Registered but not yet validated:
-  `bge-m3-v1.0` (1024-d, multilingual).
+  validated: `bge-small-en-v1.5` (384-d, English) and `multilingual-e5-small`
+  (384-d, ~100 languages). `placeholder-model` is a permanent, never-validated
+  internal test fixture (not a real model — see its doc comment in
+  `lib/src/model_catalog.dart`).
 - **`quantise` / `dequantise`** — SQ8 (scalar 8-bit) vector quantization helpers
   for compact storage of embedding indexes.
 - Re-exports from `betto_onnxrt`: `ModelDownloader`, `ModelSpec`, `ModelFile`,
@@ -65,7 +80,7 @@ needed. Add it alongside `betto_inferencing`:
 
 ```yaml
 dependencies:
-  betto_inferencing: ^0.1.0-dev.2
+  betto_inferencing: ^0.1.0-dev.3
   betto_onnxrt_ios: ^0.1.0-dev.1
 ```
 
@@ -87,7 +102,7 @@ android {
 
 ```yaml
 dependencies:
-  betto_inferencing: ^0.1.0-dev.2
+  betto_inferencing: ^0.1.0-dev.3
 ```
 
 > **Note:** `betto_inferencing` uses native-assets build hooks via
@@ -161,14 +176,43 @@ final spec = ModelCatalog.lookup('bge-small-en-v1.5');
 print(spec.meta['dimensions']); // 384
 
 // Check registration without validation gating.
-print(ModelCatalog.isKnown('bge-m3-v1.0')); // true
+print(ModelCatalog.isKnown('placeholder-model')); // true (never validated)
 
 // Iterate all registered models (validated and not yet validated).
 for (final spec in ModelCatalog.all) {
   print('${spec.id} — ${spec.meta['dimensions']}d');
 }
 // bge-small-en-v1.5 — 384d
-// bge-m3-v1.0 — 1024d
+// multilingual-e5-small — 384d
+// placeholder-model — 0d
+```
+
+### Cross-lingual embedding with `multilingual-e5-small`
+
+```dart
+final spec = ModelCatalog.lookup('multilingual-e5-small');
+final model = await OnnxEmbeddingModel.load(
+  spec: spec,
+  cacheDir: '/path/to/model/cache',
+);
+
+try {
+  // Index-time text: EmbeddingKind.document (the default) applies E5's
+  // mandatory "passage: " prefix automatically.
+  final (docEmbedding, _) = await model.embed(
+    'The cat sat on the mat.',
+    kind: EmbeddingKind.document,
+  );
+
+  // Query-time text in a different language: EmbeddingKind.query applies
+  // "query: " instead.
+  final (queryEmbedding, _) = await model.embed(
+    'Le chat était assis sur le tapis.',
+    kind: EmbeddingKind.query,
+  );
+} finally {
+  model.dispose();
+}
 ```
 
 ### SQ8 quantization
@@ -207,10 +251,21 @@ dart run example/<name>.dart
 
 ## Models
 
-| Model ID            | Dimensions | Language     | Status                        |
-| ------------------- | ---------- | ------------ | ----------------------------- |
-| `bge-small-en-v1.5` | 384        | English      | ✅ Validated                  |
-| `bge-m3-v1.0`       | 1024       | Multilingual | Registered, not yet validated |
+| Model ID                | Dimensions | Language        | Status                             |
+| ------------------------ | ---------- | --------------- | ----------------------------------- |
+| `bge-small-en-v1.5`      | 384        | English         | ✅ Validated (~127 MB download)     |
+| `multilingual-e5-small`  | 384        | ~100 languages  | ✅ Validated (~470 MB download)     |
+| `placeholder-model`      | —          | —               | Internal test fixture, never valid  |
+
+`multilingual-e5-small` requires a `"passage: "` / `"query: "` text prefix
+depending on whether the text is being indexed or queried — pass the matching
+`EmbeddingKind` to `EmbeddingModel.embed`. `bge-small-en-v1.5` has no prefix
+convention, so `EmbeddingKind` is a no-op for it (safe to omit).
+
+Registering `bge-m3` (BAAI's larger, 1024-dimensional multilingual model) is
+tracked as future work, not yet in this catalog — its ONNX export exceeds the
+2 GB single-file limit and needs `ModelSpec`/`ModelDownloader` support for a
+split `model.onnx` + `model.onnx_data` layout first.
 
 ## Why not `dart_sentencepiece_tokenizer` alone
 

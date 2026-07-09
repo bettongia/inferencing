@@ -53,12 +53,15 @@ void main() {
     });
 
     test('lookup throws UnsupportedError for an unvalidated model', () {
-      expect(() => ModelCatalog.lookup('bge-m3-v1.0'), throwsUnsupportedError);
+      expect(
+        () => ModelCatalog.lookup('placeholder-model'),
+        throwsUnsupportedError,
+      );
     });
 
     test('isKnown distinguishes registered from unknown ids', () {
       expect(ModelCatalog.isKnown('bge-small-en-v1.5'), isTrue);
-      expect(ModelCatalog.isKnown('bge-m3-v1.0'), isTrue);
+      expect(ModelCatalog.isKnown('placeholder-model'), isTrue);
       expect(ModelCatalog.isKnown('not-a-model'), isFalse);
     });
 
@@ -192,6 +195,153 @@ void main() {
         }
       },
     );
+  });
+
+  // ── multilingual-e5-small: WI-4 cross-lingual sanity check ─────────────────
+  // Downloads multilingual-e5-small's model.onnx (~470 MB) and tokenizer.json
+  // (~17 MB) via ModelCatalog/ModelDownloader on first run; subsequent runs
+  // use the cache in modelCache (a distinct 'multilingual-e5-small'
+  // subdirectory -- ModelDownloader nests each model under its own id, so
+  // this never collides with BGE Small En v1.5's own cached files above).
+  //
+  // What this verifies (a coarse sanity check that the model actually works
+  // for cross-lingual retrieval, not just that it loads and produces
+  // correctly-shaped output -- see the WI-4 plan's Phase 2 "Tests" item):
+  //   - OnnxEmbeddingModel.load() selects XlmRobertaTokenizer via
+  //     ModelSpec.meta['tokenizerFamily'] = 'xlmr' and successfully embeds
+  //     real multilingual text through a real ORT session.
+  //   - EmbeddingKind.document / EmbeddingKind.query apply E5's mandatory
+  //     "passage: " / "query: " prefixes (Q3) -- verified indirectly by
+  //     checking the two kinds produce different embeddings for identical
+  //     raw text.
+  //   - Cross-lingual retrieval actually works: an English sentence's
+  //     document embedding is closer (higher cosine similarity) to a query
+  //     embedding of the *same meaning* in another language than to a query
+  //     embedding of an unrelated topic in that same other language. This is
+  //     the entire point of adopting a multilingual model over BGE Small En
+  //     v1.5 (English-only) -- a model that merely "runs" without actually
+  //     aligning meaning across languages would fail this check even though
+  //     every other test above it could still pass.
+  group('OnnxEmbeddingModel (multilingual-e5-small)', () {
+    OnnxEmbeddingModel? model;
+
+    setUpAll(() async {
+      final spec = ModelCatalog.lookup('multilingual-e5-small');
+      model = await OnnxEmbeddingModel.load(
+        spec: spec,
+        cacheDir: modelCache.path,
+        onProgress: (received, total) => debugPrint(
+          'multilingual-e5-small download: $received / $total bytes',
+        ),
+      );
+    });
+
+    tearDownAll(() => model?.dispose());
+
+    test('reports correct model identity and output dimensions', () {
+      expect(model!.modelId, equals('multilingual-e5-small'));
+      expect(model!.dimensions, equals(384));
+    });
+
+    test('embed returns a 384-element unit-norm float32 vector', () async {
+      final (embedding, _) = await model!.embed('hello world');
+      expect(embedding.length, equals(384));
+      final l2sq = embedding.fold<double>(0.0, (s, v) => s + v * v);
+      expect(sqrt(l2sq), closeTo(1.0, 1e-5));
+    });
+
+    test('EmbeddingKind.document and EmbeddingKind.query produce different '
+        'embeddings for identical raw text (the mandatory passage:/query: '
+        'prefixes are actually applied, not silently dropped)', () async {
+      const text = 'hello world';
+      final (docEmbedding, _) = await model!.embed(
+        text,
+        kind: EmbeddingKind.document,
+      );
+      final (queryEmbedding, _) = await model!.embed(
+        text,
+        kind: EmbeddingKind.query,
+      );
+      var identical = true;
+      for (var i = 0; i < docEmbedding.length; i++) {
+        if (docEmbedding[i] != queryEmbedding[i]) {
+          identical = false;
+          break;
+        }
+      }
+      expect(
+        identical,
+        isFalse,
+        reason:
+            'document and query embeddings of the same text must differ '
+            'once the "passage: "/"query: " prefixes are applied',
+      );
+    });
+
+    test('cross-lingual: a query in another language with the same meaning as '
+        'an indexed English sentence scores higher than an unrelated-topic '
+        'query in that same language', () async {
+      double dot(Float32List x, Float32List y) => Iterable.generate(
+        x.length,
+        (i) => x[i] * y[i],
+      ).fold<double>(0.0, (s, v) => s + v);
+
+      final (enDoc, _) = await model!.embed(
+        'The cat sat on the mat.',
+        kind: EmbeddingKind.document,
+      );
+
+      // Same meaning as enDoc, in French/German/Spanish -- and an
+      // unrelated-topic query (a sentence about stock market volatility,
+      // matching the topic BGE's own English-only test above uses as its
+      // "unrelated" contrast) in each of those same languages, so the
+      // language itself can't explain a similarity difference -- only
+      // meaning alignment can.
+      const relatedByLanguage = {
+        'fr': 'Le chat était assis sur le tapis.',
+        'de': 'Die Katze saß auf der Matte.',
+        'es': 'El gato se sentó en la alfombra.',
+      };
+      const unrelatedByLanguage = {
+        'fr': 'La bourse a connu une forte volatilité aujourd\'hui.',
+        'de': 'Die Börse verzeichnete heute eine starke Volatilität.',
+        'es': 'La bolsa experimentó hoy una fuerte volatilidad.',
+      };
+
+      for (final language in relatedByLanguage.keys) {
+        final (relatedQuery, _) = await model!.embed(
+          relatedByLanguage[language]!,
+          kind: EmbeddingKind.query,
+        );
+        final (unrelatedQuery, _) = await model!.embed(
+          unrelatedByLanguage[language]!,
+          kind: EmbeddingKind.query,
+        );
+        expect(
+          dot(enDoc, relatedQuery),
+          greaterThan(dot(enDoc, unrelatedQuery)),
+          reason:
+              'expected the $language same-meaning query to score higher '
+              'than the $language unrelated-topic query',
+        );
+      }
+    });
+
+    test(
+      'embed sets truncated=true when text exceeds the token budget',
+      () async {
+        final longText = List.filled(700, 'word').join(' ');
+        final (embedding, truncated) = await model!.embed(longText);
+        expect(embedding.length, equals(384));
+        expect(truncated, isTrue);
+      },
+    );
+
+    test('embed handles empty string without throwing', () async {
+      final (embedding, truncated) = await model!.embed('');
+      expect(embedding.length, equals(384));
+      expect(truncated, isFalse);
+    });
   });
 
   // ── XlmRobertaTokenizer parity gate ────────────────────────────────────────
