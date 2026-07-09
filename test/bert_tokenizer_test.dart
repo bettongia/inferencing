@@ -245,6 +245,48 @@ void main() {
       },
     );
   });
+
+  // ── ModelTokenizer conformance ─────────────────────────────────────────────
+  // WI-4: BertTokenizer now implements ModelTokenizer so OnnxEmbeddingModel
+  // can select it interchangeably with XlmRobertaTokenizer. This must be a
+  // pure interface addition with no behavioural change for bge-small-en-v1.5
+  // — these tests pin that by calling encode() through both the concrete
+  // BertTokenizer reference and a ModelTokenizer-typed reference to the same
+  // instance and asserting byte-identical output on every fixture case this
+  // file already exercises above.
+  group('BertTokenizer - ModelTokenizer conformance', () {
+    test('BertTokenizer is usable as a ModelTokenizer', () {
+      final ModelTokenizer asModelTokenizer = tokenizer;
+      expect(asModelTokenizer, isA<ModelTokenizer>());
+    });
+
+    test(
+      'encode() via the ModelTokenizer interface reference is byte-identical '
+      'to encode() via the concrete BertTokenizer reference, across the same '
+      'cases already covered above (golden-output parity, no behavioural '
+      'change)',
+      () {
+        final ModelTokenizer asModelTokenizer = tokenizer;
+        for (final text in [
+          'hello world',
+          'jekyll',
+          'xyz',
+          'HELLO',
+          'café',
+          '',
+          '   \t\n   ',
+          List.filled(600, 'hello').join(' '),
+        ]) {
+          final direct = tokenizer.encode(text);
+          final viaInterface = asModelTokenizer.encode(text);
+          expect(viaInterface.inputIds, equals(direct.inputIds));
+          expect(viaInterface.attentionMask, equals(direct.attentionMask));
+          expect(viaInterface.tokenTypeIds, equals(direct.tokenTypeIds));
+          expect(viaInterface.truncated, equals(direct.truncated));
+        }
+      },
+    );
+  });
 }
 
 // ── Test Tokenizers ───────────────────────────────────────────────────────────

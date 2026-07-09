@@ -17,13 +17,16 @@ import 'dart:typed_data';
 
 import 'package:betto_onnxrt/betto_onnxrt.dart';
 import 'package:betto_lexical/betto_lexical.dart' show Tokenizer;
+import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
-import 'embedding_model.dart' show EmbeddingModel;
+import 'embedding_model.dart' show EmbeddingKind, EmbeddingModel;
 
 import 'bert_tokenizer.dart';
 import 'math_utils.dart';
 import 'model_catalog.dart';
+import 'model_tokenizer.dart' show ModelTokenizer;
+import 'xlmr_tokenizer.dart' show XlmRobertaTokenizer;
 
 /// ONNX Runtime-backed embedding model for dense text retrieval.
 ///
@@ -94,7 +97,7 @@ class OnnxEmbeddingModel implements EmbeddingModel {
 
   final OnnxRuntime _runtime;
   final OnnxSession _session;
-  final BertTokenizer _tokenizer;
+  final ModelTokenizer _tokenizer;
 
   /// The [ModelSpec] of the loaded model.
   ///
@@ -154,9 +157,22 @@ class OnnxEmbeddingModel implements EmbeddingModel {
   ///
   /// [tokenizer] overrides the word-segmentation step inside [BertTokenizer].
   /// Defaults to [RegExpTokenizer]. Supply `IcuTokenizer()` from
-  /// `package:betto_icu` for superior Unicode coverage.
+  /// `package:betto_icu` for superior Unicode coverage. Ignored for models
+  /// whose `tokenizerFamily` is `'xlmr'` (word segmentation there is handled
+  /// entirely by [XlmRobertaTokenizer]'s SentencePiece/Unigram pipeline, which
+  /// has no equivalent seam).
   ///
-  /// Throws [ArgumentError] if neither [modelPath] nor [cacheDir] is supplied.
+  /// ## Tokenizer family selection
+  ///
+  /// The concrete [ModelTokenizer] implementation is chosen from
+  /// `spec.meta['tokenizerFamily']`: `'bert'` loads [BertTokenizer],
+  /// `'xlmr'` loads [XlmRobertaTokenizer]. This key must be present and
+  /// recognised — an absent or unrecognised value throws [ArgumentError]
+  /// rather than silently defaulting, so a future third tokenizer family
+  /// can't be misresolved by accident.
+  ///
+  /// Throws [ArgumentError] if neither [modelPath] nor [cacheDir] is supplied,
+  /// or if [spec]`.meta['tokenizerFamily']` is missing or unrecognised.
   /// Throws [UnsupportedError] if the model file does not exist on disk.
   /// Throws [Exception] if the ORT library cannot be loaded or the model is
   /// corrupt.
@@ -187,11 +203,21 @@ class OnnxEmbeddingModel implements EmbeddingModel {
     final resolvedSpec =
         spec ?? ModelCatalog.lookup(ModelCatalog.defaultModelId);
 
+    // Validate tokenizerFamily synchronously, before any I/O — same
+    // fail-fast rationale as the modelPath/cacheDir guard above. This is a
+    // pure, fast check (no file or network access), so it is fully covered
+    // by unit tests rather than requiring live model assets.
+    final tokenizerFamily = _tokenizerFamily(resolvedSpec);
+
     final String resolvedModelPath;
     final String resolvedVocabPath;
 
     if (modelPath != null) {
-      // Explicit path — bypass catalog and downloader.
+      // Explicit path — bypass catalog and downloader. The second asset file
+      // is named 'vocab.txt' regardless of tokenizer family for this path —
+      // an explicit modelPath is a lower-level escape hatch than the
+      // catalog/downloader path below, so it keeps the original, simpler
+      // convention rather than branching on tokenizerFamily too.
       resolvedModelPath = modelPath;
       resolvedVocabPath = p.join(p.dirname(modelPath), 'vocab.txt');
     } else {
@@ -206,25 +232,71 @@ class OnnxEmbeddingModel implements EmbeddingModel {
         onProgress: onProgress,
       );
       // File names in ResolvedModel.filePaths match the keys in ModelSpec.files:
-      // 'onnx' → absolute path to the .onnx model, 'vocab' → vocab.txt.
+      // 'onnx' → absolute path to the .onnx model, 'vocab' → the tokenizer
+      // asset (vocab.txt for BERT-family models, tokenizer.json for
+      // XLM-R-family models — the key name is a generic "second asset" slot,
+      // not tied to any one file format).
       resolvedModelPath = resolved.filePaths['onnx']!;
       resolvedVocabPath = resolved.filePaths['vocab']!;
     }
 
     _assertFileExists(resolvedModelPath, 'model file');
-    _assertFileExists(resolvedVocabPath, 'vocab.txt');
+    _assertFileExists(resolvedVocabPath, 'tokenizer asset');
 
     // coverage:ignore-start
     // The lines below require a live ORT native library and model assets.
     // They are tested through integration tests when model assets are present.
     final runtime = await OnnxRuntime.load();
     final session = runtime.createSessionFromFile(resolvedModelPath);
-    final tok = await BertTokenizer.load(
-      resolvedVocabPath,
-      tokenizer: tokenizer,
-    );
+    // tokenizerFamily was already validated above (fail-fast, before I/O) —
+    // this switch only selects which concrete loader to invoke.
+    final ModelTokenizer tok = tokenizerFamily == 'xlmr'
+        ? await XlmRobertaTokenizer.load(resolvedVocabPath)
+        : await BertTokenizer.load(resolvedVocabPath, tokenizer: tokenizer);
     return OnnxEmbeddingModel._(runtime, session, tok, resolvedSpec);
     // coverage:ignore-end
+  }
+
+  /// Validates and returns `spec.meta['tokenizerFamily']`.
+  ///
+  /// Pure and synchronous — safe to call before any I/O, so a misconfigured
+  /// [ModelSpec] fails fast with a clear message rather than surfacing as a
+  /// confusing downstream error once the ORT session is already open.
+  ///
+  /// Throws [ArgumentError] if the key is missing or is not one of the
+  /// recognised values (`'bert'`, `'xlmr'`) — deliberately not defaulted, so
+  /// a future third tokenizer family can't be silently misresolved by a
+  /// [ModelSpec] that forgot to set it.
+  static String _tokenizerFamily(ModelSpec spec) {
+    final family = spec.meta['tokenizerFamily'];
+    if (family != 'bert' && family != 'xlmr') {
+      throw ArgumentError(
+        "ModelSpec '${spec.id}' has meta['tokenizerFamily'] = "
+        "${family == null ? 'null (missing)' : "'$family'"}, but only "
+        "'bert' and 'xlmr' are recognised. Add a valid tokenizerFamily "
+        'entry to the ModelSpec.meta map.',
+      );
+    }
+    return family as String;
+  }
+
+  /// Prepends the `kind`-appropriate prefix from `spec.meta` to [text], if
+  /// one is configured.
+  ///
+  /// Looks up `spec.meta['queryPrefix']` for [EmbeddingKind.query] or
+  /// `spec.meta['documentPrefix']` for [EmbeddingKind.document]. If the
+  /// corresponding key is absent, [text] is returned unchanged — this is a
+  /// deliberate no-op default so models that don't need a prefix (e.g.
+  /// `bge-small-en-v1.5`) are byte-for-byte unaffected by [kind].
+  ///
+  /// Exposed (rather than kept private) so this pure, spec-driven logic can
+  /// be unit-tested directly without needing a live ORT session — see this
+  /// package's coverage notes for why [embed] itself is `coverage:ignore`d.
+  @visibleForTesting
+  static String applyPrefix(String text, EmbeddingKind kind, ModelSpec spec) {
+    final key = kind == EmbeddingKind.query ? 'queryPrefix' : 'documentPrefix';
+    final prefix = spec.meta[key];
+    return prefix is String ? '$prefix$text' : text;
   }
 
   // ── EmbeddingModel.embed ──────────────────────────────────────────────────
@@ -239,15 +311,30 @@ class OnnxEmbeddingModel implements EmbeddingModel {
   /// An empty or whitespace-only [text] produces a `[CLS][SEP]`-only
   /// embedding (two real tokens) and returns `truncated = false`.
   ///
+  /// [kind] selects [spec.meta]'s `'queryPrefix'` (for
+  /// [EmbeddingKind.query]) or `'documentPrefix'` (for
+  /// [EmbeddingKind.document], the default) and prepends it to [text] before
+  /// tokenisation — see [applyPrefix]. Models with neither key (e.g.
+  /// `bge-small-en-v1.5`) are unaffected: the prepend is a no-op, so
+  /// behaviour is byte-for-byte unchanged regardless of [kind].
+  ///
   /// Returns `(embedding, truncated)`:
   /// - `embedding` — [dimensions]-element [Float32List] with unit L2 norm.
-  /// - `truncated` — `true` if [text] exceeded 510 usable BERT tokens and
-  ///   was silently cut before embedding.
+  /// - `truncated` — `true` if [text] (after prefixing) exceeded the usable
+  ///   token budget and was silently cut before embedding.
+  // coverage:ignore-start
+  // This entire method requires a live ORT session to exercise meaningfully
+  // — covered by integration tests with model assets, not make coverage.
+  // (applyPrefix itself, the pure prefix-selection logic embed() delegates
+  // to below, is unit-tested directly without needing a live session — see
+  // its own doc comment and test/onnx_embedding_model_test.dart.)
   @override
-  Future<(Float32List, bool)> embed(String text) async {
-    // coverage:ignore-start
-    // Requires a live ORT session — covered by integration tests with model assets.
-    final tokens = _tokenizer.encode(text);
+  Future<(Float32List, bool)> embed(
+    String text, {
+    EmbeddingKind kind = EmbeddingKind.document,
+  }) async {
+    final prefixedText = applyPrefix(text, kind, _spec);
+    final tokens = _tokenizer.encode(prefixedText);
     final seqLen = tokens.inputIds.length;
     final hiddenDim = dimensions; // sourced from spec.meta['dimensions']
 

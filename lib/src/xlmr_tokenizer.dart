@@ -21,6 +21,7 @@ import 'package:meta/meta.dart';
 
 import 'bert_tokenizer.dart' show TokenizerOutput;
 import 'charsmap_trie.dart';
+import 'model_tokenizer.dart' show ModelTokenizer;
 
 /// XLM-RoBERTa-family SentencePiece/Unigram tokenizer, e.g. for
 /// `multilingual-e5-small`.
@@ -76,11 +77,10 @@ import 'charsmap_trie.dart';
 /// `" Hello"` does not) — so this class must own both normalization
 /// concerns, not just the charsmap.
 ///
-/// Note: this does **not** implement a shared `ModelTokenizer` interface —
-/// that type does not exist yet (it is introduced by a separate, later
-/// embedding-model work item that in turn depends on this class existing
-/// first).
-class XlmRobertaTokenizer {
+/// Implements [ModelTokenizer] so [OnnxEmbeddingModel] can select this
+/// tokenizer at runtime alongside [BertTokenizer], both sharing the same
+/// [TokenizerOutput] return shape.
+class XlmRobertaTokenizer implements ModelTokenizer {
   XlmRobertaTokenizer._(this._charsmapTrie, this._tokenizer, this._maxLength);
 
   final CharsmapTrie _charsmapTrie;
@@ -179,6 +179,7 @@ class XlmRobertaTokenizer {
   ///
   /// All three output arrays have exactly the `maxLength` passed to [load]
   /// elements.
+  @override
   TokenizerOutput encode(String text) {
     final normalizedText = normalizeForTokenization(_charsmapTrie, text);
 

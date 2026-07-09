@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.1.0-dev.3
+
+### Features
+
+- **`multilingual-e5-small`** registered in `ModelCatalog` and validated —
+  this package's first cross-lingual embedding model, ~100 languages, 384
+  dimensions (same as `bge-small-en-v1.5`, so no SQ8/index-format change for
+  consumers switching models). Uses the plain fp32 `model.onnx` export (not
+  a quantized or GPU-oriented variant — see the `ModelCatalog` doc comment
+  for the trade-off analysis) and `XlmRobertaTokenizer` for tokenization.
+  Real checksums verified via the new `tool/register_model.dart`.
+- **`EmbeddingKind`** — new `document` / `query` enum, and a corresponding
+  `kind` parameter on `EmbeddingModel.embed()` (default `EmbeddingKind.document`,
+  source-compatible for existing callers). `OnnxEmbeddingModel.embed()` uses
+  it to apply `ModelSpec.meta`'s `'documentPrefix'` / `'queryPrefix'` when the
+  loaded model defines them — `multilingual-e5-small` requires a mandatory
+  `"passage: "` / `"query: "` prefix per its model card; `bge-small-en-v1.5`
+  has neither key, so its behaviour is byte-for-byte unchanged.
+- **`ModelTokenizer`** — new shared interface (`encode(String) ->
+  TokenizerOutput`) implemented by both `BertTokenizer` and
+  `XlmRobertaTokenizer`. `OnnxEmbeddingModel.load()` selects the concrete
+  implementation via a new `ModelSpec.meta['tokenizerFamily']` key (`'bert'`
+  or `'xlmr'`, added explicitly to `bge-small-en-v1.5`'s own entry too) rather
+  than a compile-time fork, so a third tokenizer family is additive.
+- **`tool/register_model.dart`** — new one-off dev tool that downloads a
+  `ModelCatalog` entry's asset files from the exact URL `ModelSpec` uses at
+  runtime and computes their SHA-256 digests via `package:crypto`, so a
+  registered checksum is guaranteed to match what a real download verifies.
+
+### Changes
+
+- **`placeholder-model`** replaces the previous `bge-m3-v1.0` stub entry in
+  `ModelCatalog`. The old entry had placeholder all-zero checksums and could
+  never actually be downloaded or validated — a registered model that would
+  silently fail with a confusing checksum-mismatch error rather than a clear
+  "not supported" message. `placeholder-model` is a permanent, deliberately
+  `validated: false` test fixture (non-resolvable `example.invalid` URLs)
+  that exists solely to give tests a stable, always-unvalidated registered id
+  to assert catalog gating behaviour against. Registering `bge-m3` properly
+  (a real 1024-dimensional multilingual model) is deferred future work — its
+  ONNX export exceeds the 2 GB single-file limit and needs
+  `ModelSpec`/`ModelDownloader` support for a split `model.onnx` +
+  `model.onnx_data` layout first.
+
 ## 0.1.0-dev.2
 
 ### Features

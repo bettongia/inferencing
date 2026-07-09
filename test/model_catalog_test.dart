@@ -67,6 +67,89 @@ void main() {
       expect(spec.files.containsKey('onnx'), isTrue);
       expect(spec.files.containsKey('vocab'), isTrue);
     });
+
+    test('BGE Small En v1.5 tokenizerFamily is bert', () {
+      final spec = ModelCatalog.lookup('bge-small-en-v1.5');
+      expect(spec.meta['tokenizerFamily'], equals('bert'));
+    });
+
+    test('BGE Small En v1.5 has no queryPrefix/documentPrefix', () {
+      // No passage/query prefix convention for this model — absence is
+      // meaningful (OnnxEmbeddingModel.embed()'s prefix step no-ops).
+      final spec = ModelCatalog.lookup('bge-small-en-v1.5');
+      expect(spec.meta.containsKey('queryPrefix'), isFalse);
+      expect(spec.meta.containsKey('documentPrefix'), isFalse);
+    });
+  });
+
+  group('ModelSpec (via ModelCatalog) — multilingual-e5-small', () {
+    test('spec has correct dimensions in meta', () {
+      final spec = ModelCatalog.lookup('multilingual-e5-small');
+      expect(spec.id, equals('multilingual-e5-small'));
+      expect(spec.meta['dimensions'], equals(384));
+    });
+
+    test('tokenizerFamily is xlmr', () {
+      final spec = ModelCatalog.lookup('multilingual-e5-small');
+      expect(spec.meta['tokenizerFamily'], equals('xlmr'));
+    });
+
+    test('queryPrefix and documentPrefix are set per the E5 model card', () {
+      final spec = ModelCatalog.lookup('multilingual-e5-small');
+      expect(spec.meta['queryPrefix'], equals('query: '));
+      expect(spec.meta['documentPrefix'], equals('passage: '));
+    });
+
+    test('has non-empty URLs and checksums', () {
+      final spec = ModelCatalog.lookup('multilingual-e5-small');
+      expect(spec.files['onnx']!.url.toString(), isNotEmpty);
+      expect(spec.files['vocab']!.url.toString(), isNotEmpty);
+      expect(spec.files['onnx']!.sha256, isNotEmpty);
+      expect(spec.files['vocab']!.sha256, isNotEmpty);
+    });
+
+    // Regression guard, same rationale as BGE Small En v1.5's pinned-checksum
+    // test above: pin the exact known-good values (computed by
+    // tool/register_model.dart from a real download) so an accidental
+    // reversion to a placeholder or an unnoticed upstream change is caught at
+    // test time, not at runtime.
+    test('onnx sha256 matches known-good value', () {
+      final spec = ModelCatalog.lookup('multilingual-e5-small');
+      expect(
+        spec.files['onnx']!.sha256,
+        equals(
+          'ca456c06b3a9505ddfd9131408916dd79290368331e7d76bb621f1cba6bc8665',
+        ),
+      );
+    });
+
+    test('tokenizer.json sha256 matches known-good value', () {
+      final spec = ModelCatalog.lookup('multilingual-e5-small');
+      expect(
+        spec.files['vocab']!.sha256,
+        equals(
+          '0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39',
+        ),
+      );
+    });
+
+    test('onnx URL points to HuggingFace intfloat/multilingual-e5-small', () {
+      final spec = ModelCatalog.lookup('multilingual-e5-small');
+      expect(
+        spec.files['onnx']!.url.toString(),
+        allOf(
+          contains('huggingface.co'),
+          contains('intfloat/multilingual-e5-small'),
+        ),
+      );
+    });
+
+    test('is registered and validated', () {
+      expect(ModelCatalog.isKnown('multilingual-e5-small'), isTrue);
+      // lookup() would throw UnsupportedError if unvalidated — reaching this
+      // line without throwing is the assertion.
+      ModelCatalog.lookup('multilingual-e5-small');
+    });
   });
 
   group('ModelCatalog.lookup', () {
@@ -96,16 +179,17 @@ void main() {
           isA<ArgumentError>().having(
             (e) => e.message as String,
             'message',
-            allOf(contains('bge-small-en-v1.5'), contains('bge-m3-v1.0')),
+            allOf(contains('bge-small-en-v1.5'), contains('placeholder-model')),
           ),
         ),
       );
     });
 
     test('throws UnsupportedError for a registered but unvalidated model', () {
-      // BGE-M3 is registered as infrastructure but not yet validated.
+      // placeholder-model is a permanent test fixture — always registered,
+      // never validated. See ModelCatalog's doc comment.
       expect(
-        () => ModelCatalog.lookup('bge-m3-v1.0'),
+        () => ModelCatalog.lookup('placeholder-model'),
         throwsA(
           isA<UnsupportedError>().having(
             (e) => e.message,
@@ -118,12 +202,12 @@ void main() {
 
     test('error message for unvalidated model mentions the model ID', () {
       expect(
-        () => ModelCatalog.lookup('bge-m3-v1.0'),
+        () => ModelCatalog.lookup('placeholder-model'),
         throwsA(
           isA<UnsupportedError>().having(
             (e) => e.message,
             'message',
-            contains('bge-m3-v1.0'),
+            contains('placeholder-model'),
           ),
         ),
       );
@@ -137,7 +221,7 @@ void main() {
 
     test('returns true for a registered but unvalidated model', () {
       // isKnown does not check validation state — it only checks registration.
-      expect(ModelCatalog.isKnown('bge-m3-v1.0'), isTrue);
+      expect(ModelCatalog.isKnown('placeholder-model'), isTrue);
     });
 
     test('returns false for an unknown model ID', () {
@@ -146,17 +230,28 @@ void main() {
   });
 
   group('ModelCatalog.all', () {
-    test('contains at least two entries (BGE Small En and BGE-M3)', () {
-      final all = ModelCatalog.all.toList();
-      expect(all.length, greaterThanOrEqualTo(2));
-    });
+    test(
+      'contains at least three entries (BGE Small En, multilingual-e5-small, '
+      'placeholder-model)',
+      () {
+        final all = ModelCatalog.all.toList();
+        expect(all.length, greaterThanOrEqualTo(3));
+      },
+    );
 
     test('contains BGE Small En v1.5', () {
       expect(ModelCatalog.all.any((s) => s.id == 'bge-small-en-v1.5'), isTrue);
     });
 
-    test('contains BGE-M3 (as infrastructure, unvalidated)', () {
-      expect(ModelCatalog.all.any((s) => s.id == 'bge-m3-v1.0'), isTrue);
+    test('contains multilingual-e5-small', () {
+      expect(
+        ModelCatalog.all.any((s) => s.id == 'multilingual-e5-small'),
+        isTrue,
+      );
+    });
+
+    test('contains placeholder-model (test fixture, unvalidated)', () {
+      expect(ModelCatalog.all.any((s) => s.id == 'placeholder-model'), isTrue);
     });
   });
 
@@ -180,10 +275,12 @@ void main() {
 
     test('isAllowed returns true for a registered but unvalidated model', () {
       const catalog = ModelCatalog();
-      // BGE-M3 is registered but unvalidated — isAllowed only checks
-      // registration, not validation status.
-      final bgeM3 = ModelCatalog.all.firstWhere((s) => s.id == 'bge-m3-v1.0');
-      expect(catalog.isAllowed(bgeM3), isTrue);
+      // placeholder-model is registered but unvalidated — isAllowed only
+      // checks registration, not validation status.
+      final placeholderSpec = ModelCatalog.all.firstWhere(
+        (s) => s.id == 'placeholder-model',
+      );
+      expect(catalog.isAllowed(placeholderSpec), isTrue);
     });
 
     test('isAllowed returns false for an unregistered model', () {

@@ -28,8 +28,21 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:betto_inferencing/src/charsmap_trie.dart';
+import 'package:betto_inferencing/src/model_tokenizer.dart';
 import 'package:betto_inferencing/src/xlmr_tokenizer.dart';
 import 'package:test/test.dart';
+
+/// Compile-time-only conformance check: this function's signature only
+/// type-checks if [XlmRobertaTokenizer] implements [ModelTokenizer]. There is
+/// no way to construct a live [XlmRobertaTokenizer] instance offline (its
+/// only public constructor, [XlmRobertaTokenizer.load], requires the real
+/// ~17 MB `tokenizer.json` and is `coverage:ignore`d — see this file's doc
+/// comment), so a runtime `is ModelTokenizer` assertion on a real instance is
+/// covered instead by the network-gated integration test in
+/// `integration_test_app/integration_test/`. This function existing at all
+/// (and this file compiling) is itself the conformance guarantee for the
+/// offline test suite.
+ModelTokenizer _asModelTokenizer(XlmRobertaTokenizer t) => t;
 
 /// Path to the small, committed charsmap fixture shared with
 /// `charsmap_trie_test.dart` — see that file's doc comment for provenance.
@@ -96,6 +109,16 @@ void main() {
       // comment for the full explanation.
       final result = XlmRobertaTokenizer.normalizeForTokenization(_trie, '');
       expect(result, isEmpty);
+    });
+  });
+
+  group('XlmRobertaTokenizer - ModelTokenizer conformance', () {
+    test('implements ModelTokenizer (compile-time check)', () {
+      // Referencing the tear-off is enough to prove the file compiles with
+      // XlmRobertaTokenizer assignable to ModelTokenizer -- see
+      // _asModelTokenizer's doc comment for why a live instance can't be
+      // constructed offline to assert this at runtime instead.
+      expect(_asModelTokenizer, isNotNull);
     });
   });
 

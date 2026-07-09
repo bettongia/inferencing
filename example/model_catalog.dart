@@ -57,7 +57,8 @@ void main() {
   print('=== isKnown checks ===');
   for (final id in [
     'bge-small-en-v1.5', // validated, production-ready
-    'bge-m3-v1.0', // registered but not yet validated
+    'multilingual-e5-small', // validated, production-ready (multilingual)
+    'placeholder-model', // permanent test fixture, never validated
     'my-custom-model', // not registered at all
   ]) {
     print('  isKnown("$id"): ${ModelCatalog.isKnown(id)}');
@@ -65,11 +66,12 @@ void main() {
   print('');
 
   // ── 4. Error: unvalidated model ───────────────────────────────────────────
-  // bge-m3-v1.0 is registered in the catalog but lookup() throws
-  // UnsupportedError until the validation plan is complete.
+  // placeholder-model is registered in the catalog but lookup() always
+  // throws UnsupportedError — it is a permanent test fixture, not a model
+  // pending validation.
   print('=== Error handling ===');
   try {
-    ModelCatalog.lookup('bge-m3-v1.0');
+    ModelCatalog.lookup('placeholder-model');
   } on UnsupportedError catch (e) {
     print('UnsupportedError for unvalidated model (expected):');
     print('  $e');

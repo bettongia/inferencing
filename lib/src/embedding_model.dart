@@ -14,6 +14,24 @@
 
 import 'dart:typed_data';
 
+/// Distinguishes indexing-time ("document") text from query-time ("query")
+/// text passed to [EmbeddingModel.embed].
+///
+/// Some models (e.g. `multilingual-e5-small`) require a fixed textual prefix
+/// (`"passage: "` / `"query: "`) depending on which side of retrieval the
+/// text is on — encoding a query the same way as a document degrades
+/// retrieval quality for those models. [EmbeddingKind] lets a caller state
+/// which side it's on without needing to know whether the loaded model
+/// actually requires a prefix; models that don't need one (e.g.
+/// `bge-small-en-v1.5`) simply ignore it.
+enum EmbeddingKind {
+  /// Text being indexed (inserted or updated) into a vector index.
+  document,
+
+  /// Text used to query a vector index for nearest neighbours.
+  query,
+}
+
 /// Abstract interface for text-to-vector embedding models.
 ///
 /// Allows a consuming database or application to accept an embedding model
@@ -66,12 +84,26 @@ abstract interface class EmbeddingModel {
 
   /// Embeds [text] into a dense float vector.
   ///
+  /// [kind] states whether [text] is being indexed ([EmbeddingKind.document],
+  /// the default) or is a search query ([EmbeddingKind.query]). Models that
+  /// require different handling for the two cases (e.g. a mandatory
+  /// `"passage: "`/`"query: "` prefix) branch on [kind] internally; models
+  /// that don't need this distinction ignore it entirely, so passing the
+  /// default is always safe for those models. Callers that know which case
+  /// they're in (indexing vs. querying) should always pass the matching
+  /// [kind] explicitly — silently treating every call as [EmbeddingKind.document]
+  /// degrades retrieval quality for models that do use the distinction,
+  /// without erroring.
+  ///
   /// Returns a record `(embedding, truncated)` where:
   /// - `embedding` is the float32 embedding vector with exactly [dimensions]
   ///   elements.
   /// - `truncated` is `true` if [text] exceeded the model's context window and
   ///   was silently truncated before embedding.
-  Future<(Float32List embedding, bool truncated)> embed(String text);
+  Future<(Float32List embedding, bool truncated)> embed(
+    String text, {
+    EmbeddingKind kind = EmbeddingKind.document,
+  });
 
   /// Releases any native resources held by this model.
   ///
