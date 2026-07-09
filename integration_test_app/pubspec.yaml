@@ -28,3 +28,14 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # test/fixtures/*.json are symlinks into the package's own committed
+  # test/fixtures/ (../../../test/fixtures/ from here) -- kept as symlinks
+  # rather than copies so there is only one source of truth for the WI-11
+  # smoke-corpus fixtures. Flutter's asset bundler does not reliably package
+  # files referenced via a "../" path that escapes the app's own project
+  # root (verified: such files land in the platform build's raw Resources
+  # copy but not inside flutter_assets/, so rootBundle can't see them at
+  # runtime) -- assets must live inside this app's own directory tree.
+  assets:
+    - test/fixtures/xlmr_smoke_corpus.json
+    - test/fixtures/xlmr_reference_ids.json

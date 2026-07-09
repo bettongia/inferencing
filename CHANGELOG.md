@@ -2,6 +2,17 @@
 
 ## 0.1.0-dev.2
 
+### Features
+
+- **`XlmRobertaTokenizer`** — XLM-RoBERTa-family SentencePiece/Unigram
+  tokenizer (e.g. `multilingual-e5-small`), returning the same
+  `TokenizerOutput` type `BertTokenizer` uses. Composes a from-scratch
+  `CharsmapTrie` (a Darts double-array trie reader for SentencePiece's
+  `precompiled_charsmap` normalizer) with `dart_sentencepiece_tokenizer`'s
+  public API, working around two defects in that package's HuggingFace
+  `tokenizer.json` loading path — see `README.md` for details and `NOTICE`
+  for third-party attribution.
+
 ## 0.1.0-dev.1
 
 Initial development release providing ONNX Runtime inference and embedding
