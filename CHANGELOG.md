@@ -12,6 +12,22 @@
   public API, working around two defects in that package's HuggingFace
   `tokenizer.json` loading path — see `README.md` for details and `NOTICE`
   for third-party attribution.
+- **`tool/generate_xlmr_parity_corpus.dart`** and
+  `test/fixtures/xlmr_parity_corpus.json` — a 58-language (+3 edge case)
+  byte-exact tokenizer parity corpus, extracted from the NLTK UDHR corpus
+  (same source `betto_lang_detector` uses) and annotated with real
+  `AutoTokenizer` token ids. Gated by a new test in the `test-macos`
+  integration suite, additive to the smaller 11-entry gate already in
+  place.
+
+### Fixes
+
+- **`XlmRobertaTokenizer`** — empty-string input no longer produces a
+  spurious extra token. `_metaspace` was unconditionally adding a
+  dummy-prefix space before replacing spaces with `▁`, so `""` became
+  `"▁"` — itself a valid standalone vocabulary piece — yielding `[<s>, ▁,
+  </s>]` instead of the real `AutoTokenizer`'s `[<s>, </s>]`. Found by the
+  new 61-entry parity corpus above.
 
 ## 0.1.0-dev.1
 

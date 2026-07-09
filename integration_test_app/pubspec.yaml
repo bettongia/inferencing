@@ -39,3 +39,4 @@ flutter:
   assets:
     - test/fixtures/xlmr_smoke_corpus.json
     - test/fixtures/xlmr_reference_ids.json
+    - test/fixtures/xlmr_parity_corpus.json

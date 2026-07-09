@@ -260,7 +260,21 @@ class XlmRobertaTokenizer {
   ///
   /// Prepends a single leading space if [text] doesn't already start with
   /// one, then replaces every space with the metaspace symbol (U+2581).
+  ///
+  /// **Empty input is a special case, found by WI-4's broader parity
+  /// corpus** (`test/fixtures/xlmr_parity_corpus.json`'s `edge_empty`
+  /// entry): real `AutoTokenizer` output for `""` is just `[<s>, </s>]`
+  /// (`[0, 2]`) with no content token at all, but naively adding the dummy
+  /// prefix here would turn `""` into `"▁"`, which the real vocabulary
+  /// treats as a *valid standalone piece* (id 6) -- producing a spurious
+  /// extra content token (`[0, 6, 2]`) that fails byte-exact parity.
+  /// HuggingFace's `tokenizers` Rust `Metaspace` pre-tokenizer only adds the
+  /// prefix space when pre-tokenizing an actual word/split; a fully empty
+  /// input has no splits to begin with, so the prefix is never added.
+  /// Returning `''` unchanged for empty input reproduces that behaviour
+  /// without needing to port the Rust library's split-detection machinery.
   static String _metaspace(String text) {
+    if (text.isEmpty) return text;
     final withPrefix = text.startsWith(' ') ? text : ' $text';
     return withPrefix.replaceAll(' ', '▁');
   }
