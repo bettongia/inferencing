@@ -60,8 +60,13 @@ enum EmbeddingKind {
 /// - The returned [Float32List] must have exactly [dimensions] elements.
 /// - If [text] is longer than the model's context window, the implementation
 ///   truncates and sets `truncated = true` in the returned record.
-/// - Implementations must not throw on empty [text]; they should return a
-///   zero vector and `truncated = false`.
+/// - Implementations must not throw on empty [text]. Behaviour for empty
+///   input is otherwise implementation-defined — for example,
+///   `OnnxEmbeddingModel` produces a real `[CLS][SEP]`-only embedding (not a
+///   zero vector), with `truncated = false`. A model with a mandatory
+///   [EmbeddingKind] prefix (e.g. `multilingual-e5-small`'s `"passage: "` /
+///   `"query: "`) never actually tokenises truly empty content, since the
+///   prefix is prepended before empty [text] is checked.
 abstract interface class EmbeddingModel {
   /// Stable identifier of the model that produced these embeddings.
   ///

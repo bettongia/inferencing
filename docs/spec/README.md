@@ -114,8 +114,11 @@ EmbeddingModel
 
 - `embed` must be safe to call from the main isolate.
 - The returned `Float32List` has exactly `dimensions` elements.
-- Empty or whitespace-only input must not throw; implementations return a
-  zero vector with `truncated = false`.
+- Empty or whitespace-only input must not throw. Behaviour is otherwise
+  implementation-defined — `OnnxEmbeddingModel` produces a real
+  `[CLS][SEP]`-only embedding (not a zero vector) with `truncated = false`. A
+  model with a mandatory prefix (e.g. `multilingual-e5-small`) never actually
+  tokenises truly empty content, since the prefix is prepended first.
 - `kind` states whether `text` is being indexed (`EmbeddingKind.document`,
   the default) or is a search query (`EmbeddingKind.query`). Models with a
   passage/query prefix convention (e.g. `multilingual-e5-small`) apply the

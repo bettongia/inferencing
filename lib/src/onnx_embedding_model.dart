@@ -155,6 +155,15 @@ class OnnxEmbeddingModel implements EmbeddingModel {
   /// (no download, no checksum). The model identity is set to
   /// [ModelCatalog.defaultModelId] unless [spec] is also supplied.
   ///
+  /// **The second asset file must be named `vocab.txt`, beside [modelPath],
+  /// regardless of `tokenizerFamily`.** This explicit-path mode is a
+  /// lower-level escape hatch than the [cacheDir] path below and does not
+  /// branch on tokenizer family for the asset filename — so loading an
+  /// `'xlmr'`-family model this way still requires its `tokenizer.json` to
+  /// be named/placed as `vocab.txt` beside [modelPath]. The [cacheDir] path
+  /// handles per-family asset naming correctly and is the recommended way
+  /// to load an XLM-R-family model.
+  ///
   /// [tokenizer] overrides the word-segmentation step inside [BertTokenizer].
   /// Defaults to [RegExpTokenizer]. Supply `IcuTokenizer()` from
   /// `package:betto_icu` for superior Unicode coverage. Ignored for models

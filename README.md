@@ -277,7 +277,7 @@ Unigram Viterbi decoding, and BOS/EOS post-processing, but cannot use it as-is
 for the normalization step. Two independent defects were found in its
 HuggingFace `tokenizer.json`-loading path while integrating
 `multilingual-e5-small` (full investigation:
-[`plan_0_06_wi11_xlmr_tokenizer.md`](https://github.com/bettongia/kmdb/blob/main/docs/plans/plan_0_06_wi11_xlmr_tokenizer.md)
+[`plan_0_06_wi11_xlmr_tokenizer.md`](https://github.com/bettongia/kmdb/blob/main/docs/plans/completed/plan_0_06_wi11_xlmr_tokenizer.md)
 in the `kmdb` repository):
 
 1. **It never applies the `Precompiled` charsmap normalizer on the JSON loading
