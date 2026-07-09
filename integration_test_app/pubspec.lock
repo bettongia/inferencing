@@ -13,25 +13,25 @@ packages:
     dependency: transitive
     description:
       name: betto_icu
-      sha256: "4c70beff7cbd3742df2bb9a4cf922fe116381499fc0a423328110d1ef8cc9550"
+      sha256: "3ac7389f887867cd40d829e57baedf78b770eb101ea8b0c42149d9f57d0916e3"
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.0-dev.1"
+    version: "0.1.0-dev.2"
   betto_inferencing:
     dependency: "direct main"
     description:
       path: ".."
       relative: true
     source: path
-    version: "0.1.0-dev.1"
+    version: "0.1.0-dev.2"
   betto_lexical:
     dependency: transitive
     description:
       name: betto_lexical
-      sha256: a606934d5d89616714e2aac135ddd5c2feee2288e645411f13664a6b24550573
+      sha256: f0ac5afe40196269bd49d69a945289514591b8f99a167636e44869645e8e0908
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.0-dev.1"
+    version: "0.1.0-dev.2"
   betto_onnxrt:
     dependency: transitive
     description:
@@ -96,6 +96,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.7"
+  dart_sentencepiece_tokenizer:
+    dependency: transitive
+    description:
+      name: dart_sentencepiece_tokenizer
+      sha256: "85825632845cf6427ea0cd13dfba96b4341cf63525165155e5b9b97011239289"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.3.2"
   fake_async:
     dependency: transitive
     description:
@@ -165,10 +173,10 @@ packages:
     dependency: transitive
     description:
       name: intl
-      sha256: "3df61194eb431efc39c4ceba583b95633a403f46c9fd341e550ce0bfa50e9aa5"
+      sha256: "1ca20c894b1717686a2319b8548763d812bc0aabdac580420a44c5178c57a867"
       url: "https://pub.dev"
     source: hosted
-    version: "0.20.2"
+    version: "0.20.3"
   leak_tracker:
     dependency: transitive
     description:

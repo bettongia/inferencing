@@ -18,6 +18,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:betto_inferencing/betto_inferencing.dart';
@@ -261,17 +262,27 @@ void main() {
       tokenizer = await XlmRobertaTokenizer.load(tokenizerJsonPath);
 
       // The smoke-corpus fixtures are committed under the package's own
-      // test/fixtures/ (one directory above integration_test_app/, this
-      // app's working directory when run via `flutter test`).
-      final fixturesDir = '${Directory.current.path}/../test/fixtures';
+      // test/fixtures/ and symlinked into this app's own
+      // integration_test_app/test/fixtures/ (declared as Flutter `assets` in
+      // pubspec.yaml) so there is a single source of truth. They must be
+      // loaded via the Flutter asset bundle (rootBundle), not a host
+      // filesystem path relative to Directory.current: on iOS/Android the
+      // app runs inside a simulator/device sandbox with no view of the host
+      // source checkout at all, so a `dart:io` File read of a relative host
+      // path only ever worked on desktop (macOS/Linux/Windows), where the
+      // host filesystem happens to be visible.
       smokeCorpus =
           jsonDecode(
-                File('$fixturesDir/xlmr_smoke_corpus.json').readAsStringSync(),
+                await rootBundle.loadString(
+                  'test/fixtures/xlmr_smoke_corpus.json',
+                ),
               )
               as Map<String, dynamic>;
       referenceIds =
           jsonDecode(
-                File('$fixturesDir/xlmr_reference_ids.json').readAsStringSync(),
+                await rootBundle.loadString(
+                  'test/fixtures/xlmr_reference_ids.json',
+                ),
               )
               as Map<String, dynamic>;
     });
